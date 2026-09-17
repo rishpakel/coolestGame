@@ -246,7 +246,20 @@
           const r = radius * drift;
           points.push({ x: x + Math.cos(angle) * r, y: y + Math.sin(angle) * r });
         }
-        return { id, name, owner, x, y, radius, points, color, capture: 0, spawnTimer: 2 + Math.random() * 2.5 };
+        return {
+          id,
+          name,
+          owner,
+          x,
+          y,
+          radius,
+          points,
+          color,
+          capture: 0,
+          goldIncome: 0.02,
+          castle: false,
+          spawnTimer: 2 + Math.random() * 2.5
+        };
       }
 
       function buildWorld() {
@@ -255,24 +268,24 @@
           ['river-glade', 'River Glade', 'player', 110, 500, '#4fc3f7'],
           ['moss-gate', 'Moss Gate', 'neutral', 150, 170, '#d7d7d7'],
           ['stone-ward', 'Stone Ward', 'neutral', 260, 120, '#d7d7d7'],
-          ['sun-gate', 'Sun Gate', 'enemy', 330, 180, '#ef5350'],
-          ['frost-basin', 'Frost Basin', 'enemy', 470, 120, '#ef5350'],
+          ['sun-gate', 'Sun Gate', 'enemy-north', 330, 180, '#ef5350'],
+          ['frost-basin', 'Frost Basin', 'enemy-east', 470, 120, '#ff8a65'],
           ['ashen-ford', 'Ashen Ford', 'neutral', 610, 170, '#d7d7d7'],
-          ['storm-spur', 'Storm Spur', 'enemy', 720, 150, '#ef5350'],
-          ['gale-vault', 'Gale Vault', 'enemy', 800, 90, '#ef5350'],
+          ['storm-spur', 'Storm Spur', 'enemy-east', 720, 150, '#ff8a65'],
+          ['gale-vault', 'Gale Vault', 'enemy-south', 800, 90, '#ce93d8'],
           ['iron-falls', 'Iron Falls', 'neutral', 780, 235, '#d7d7d7'],
-          ['red-ridge', 'Red Ridge', 'enemy', 780, 360, '#ef5350'],
-          ['grave-dune', 'Grave Dune', 'enemy', 820, 490, '#ef5350'],
-          ['cinder-hall', 'Cinder Hall', 'enemy', 700, 300, '#ef5350'],
+          ['red-ridge', 'Red Ridge', 'enemy-south', 780, 360, '#ce93d8'],
+          ['grave-dune', 'Grave Dune', 'enemy-west', 820, 490, '#ffca70'],
+          ['cinder-hall', 'Cinder Hall', 'enemy-south', 700, 300, '#ce93d8'],
           ['glass-falls', 'Glass Falls', 'neutral', 620, 290, '#d7d7d7'],
           ['salt-marsh', 'Salt Marsh', 'neutral', 700, 500, '#d7d7d7'],
-          ['drift-veil', 'Drift Veil', 'neutral', 760, 560, '#d7d7d7'],
+          ['drift-veil', 'Drift Veil', 'enemy-west', 760, 560, '#ffca70'],
           ['copper-reef', 'Copper Reef', 'neutral', 630, 645, '#d7d7d7'],
           ['golden-harbor', 'Golden Harbor', 'neutral', 500, 610, '#d7d7d7'],
           ['misty-pines', 'Misty Pines', 'neutral', 450, 700, '#d7d7d7'],
-          ['wren-moor', 'Wren Moor', 'enemy', 320, 690, '#ef5350'],
+          ['wren-moor', 'Wren Moor', 'enemy-west', 320, 690, '#ffca70'],
           ['wild-steppe', 'Wild Steppe', 'neutral', 300, 580, '#d7d7d7'],
-          ['crimson-pass', 'Crimson Pass', 'enemy', 360, 500, '#ef5350'],
+          ['crimson-pass', 'Crimson Pass', 'enemy-north', 360, 500, '#ef5350'],
           ['black-water', 'Black Water', 'neutral', 500, 450, '#d7d7d7'],
           ['mire-bridge', 'Mire Bridge', 'neutral', 570, 385, '#d7d7d7'],
           ['ember-fields', 'Ember Fields', 'neutral', 470, 260, '#d7d7d7'],
@@ -284,13 +297,18 @@
           ['deep-hedge', 'Deep Hedge', 'neutral', 80, 660, '#d7d7d7'],
           ['cloud-break', 'Cloud Break', 'neutral', 210, 70, '#d7d7d7'],
           ['sable-pit', 'Sable Pit', 'neutral', 90, 90, '#d7d7d7'],
-          ['white-vale', 'White Vale', 'enemy', 420, 90, '#ef5350'],
+          ['white-vale', 'White Vale', 'enemy-north', 420, 90, '#ef5350'],
           ['barrow-hill', 'Barrow Hill', 'neutral', 330, 270, '#d7d7d7'],
           ['noble-trench', 'Noble Trench', 'neutral', 530, 320, '#d7d7d7'],
           ['viper-spring', 'Viper Spring', 'neutral', 560, 190, '#d7d7d7']
         ];
 
         const territories = defs.map(([id, name, owner, x, y, color]) => makeTerritory(id, name, owner, x, y, color));
+        const castleIds = new Set(['sun-gate', 'frost-basin', 'gale-vault', 'red-ridge', 'grave-dune', 'crimson-pass']);
+        for (const territory of territories) {
+          territory.castle = castleIds.has(territory.id);
+          territory.goldIncome = territory.castle ? 0.18 : 0.02;
+        }
         const roads = [
           ['iron-crown', 'river-glade'], ['iron-crown', 'hollow-cross'], ['iron-crown', 'old-forest'], ['iron-crown', 'moss-gate'],
           ['river-glade', 'old-forest'], ['river-glade', 'deep-hedge'], ['river-glade', 'brass-grove'],
@@ -348,6 +366,7 @@
       };
 
       const allUnits = [];
+      let playerOrder = null;
       let lastFrame = 0;
       let gameOver = false;
       let victory = false;
@@ -385,6 +404,30 @@
         return world.territories.filter((territory) => territory.owner === owner).length;
       }
 
+      function isEnemyOwner(owner) {
+        return owner.startsWith('enemy-');
+      }
+
+      function getEnemyName(owner) {
+        const names = {
+          'enemy-north': 'Ashen League',
+          'enemy-east': 'Sunfire Court',
+          'enemy-south': 'Violet Dominion',
+          'enemy-west': 'Golden Horde'
+        };
+        return names[owner] || owner;
+      }
+
+      function getEnemyColor(owner) {
+        const colors = {
+          'enemy-north': '#ef5350',
+          'enemy-east': '#ff8a65',
+          'enemy-south': '#ce93d8',
+          'enemy-west': '#ffca70'
+        };
+        return colors[owner] || '#ef5350';
+      }
+
       function findPath(startId, endId) {
         if (startId === endId) return [startId];
         const graph = new Map();
@@ -414,7 +457,7 @@
         let bestDist = Infinity;
         for (const territory of world.territories) {
           if (unit.team === 'player' && territory.owner === 'player') continue;
-          if (unit.team === 'enemy' && territory.owner === 'enemy') continue;
+          if (unit.team === 'enemy' && territory.owner === unit.faction) continue;
           const dist = getDistance(unit, territory);
           if (dist < bestDist) {
             bestDist = dist;
@@ -430,15 +473,17 @@
         foodValue.textContent = Math.floor(playerKingdom.food);
 
         const controlled = getControlledTerritories('player');
-        const enemyControlled = world.territories.filter((territory) => territory.owner === 'enemy').length;
+        const enemyControlled = world.territories.filter((territory) => isEnemyOwner(territory.owner)).length;
         const neutral = world.territories.filter((territory) => territory.owner === 'neutral').length;
+        const enemyKingdoms = new Set(world.territories.filter((territory) => isEnemyOwner(territory.owner)).map((territory) => territory.owner));
 
         kingdomStatus.innerHTML = `
           <strong>${playerKingdom.name}</strong><br>
           Controlled territories: ${controlled}/${world.territories.length}<br>
-          Enemy territories: ${enemyControlled}<br>
+          Enemy territories: ${enemyControlled} across ${enemyKingdoms.size} enemy kingdoms<br>
           Neutral zones: ${neutral}<br>
-          Roads dictate army movement and capture speed.
+          Castles take longer to capture but generate more gold.<br>
+          ${playerOrder ? `Army ordered to: ${territoryLookup.get(playerOrder)?.name || 'destination'}` : 'Click a territory to order your army.'}
         `;
       }
 
@@ -454,6 +499,7 @@
           id: Math.random().toString(16).slice(2),
           type,
           team,
+          faction: team === 'enemy' ? territoryId : 'player',
           x,
           y,
           radius: template.radius,
@@ -472,6 +518,12 @@
 
         allUnits.push(unit);
         if (team === 'player') playerKingdom.units.push(unit);
+
+        if (team === 'player' && playerOrder) {
+          const origin = territoryLookup.get(territoryId) || territoryLookup.get(playerKingdom.homeId);
+          unit.target = playerOrder;
+          unit.path = origin ? findPath(origin.id, playerOrder) : [playerOrder];
+        }
         return unit;
       }
 
@@ -527,17 +579,25 @@
           const playerUnitsHere = unitsHere.filter((unit) => unit.team === 'player').length;
           const enemyUnitsHere = unitsHere.filter((unit) => unit.team === 'enemy').length;
 
-          if (playerUnitsHere > 0 && territory.owner !== 'player') territory.capture += playerUnitsHere * 0.9;
-          if (enemyUnitsHere > 0 && territory.owner !== 'enemy') territory.capture -= enemyUnitsHere * 0.9;
+          const captureRate = territory.castle ? 0.38 : 0.9;
+          const hostileEnemyUnitsHere = unitsHere.filter((unit) => unit.team === 'enemy' && unit.faction !== territory.owner);
+          if (playerUnitsHere > 0 && territory.owner !== 'player') territory.capture += playerUnitsHere * captureRate;
+          if (hostileEnemyUnitsHere.length > 0 && territory.owner !== 'neutral') territory.capture -= hostileEnemyUnitsHere.length * captureRate;
+          if (hostileEnemyUnitsHere.length > 0 && territory.owner === 'neutral') territory.capture -= hostileEnemyUnitsHere.length * captureRate;
 
           if (territory.capture >= 100) {
             territory.owner = 'player';
             territory.capture = 0;
             territory.color = '#4fc3f7';
           } else if (territory.capture <= -100) {
-            territory.owner = 'enemy';
+            const factionCounts = new Map();
+            for (const unit of hostileEnemyUnitsHere) {
+              factionCounts.set(unit.faction, (factionCounts.get(unit.faction) || 0) + 1);
+            }
+            const captor = [...factionCounts.entries()].sort((a, b) => b[1] - a[1])[0];
+            territory.owner = captor ? captor[0] : 'enemy-north';
             territory.capture = 0;
-            territory.color = '#ef5350';
+            territory.color = getEnemyColor(territory.owner);
           }
 
           territory.capture = clamp(territory.capture, -100, 100);
@@ -546,21 +606,25 @@
 
       function addResourceIncome() {
         const controlled = getControlledTerritories('player');
-        playerKingdom.gold += 0.10 + controlled * 0.02;
+        const territoryGold = world.territories
+          .filter((territory) => territory.owner === 'player')
+          .reduce((total, territory) => total + territory.goldIncome, 0);
+        playerKingdom.gold += 0.10 + territoryGold;
         playerKingdom.food += playerKingdom.foodIncome + controlled * 0.01;
         playerKingdom.wood += playerKingdom.woodIncome + controlled * 0.01;
       }
 
       function spawnEnemyUnits(dt) {
         for (const territory of world.territories) {
-          if (territory.owner !== 'enemy') continue;
+          if (!isEnemyOwner(territory.owner)) continue;
           territory.spawnTimer -= dt;
           if (territory.spawnTimer > 0) continue;
 
           const roll = Math.random();
           const type = roll < 0.58 ? 'peasant' : roll < 0.85 ? 'archer' : 'knight';
           const unit = createUnit(type, 'enemy', territory.x + (Math.random() - 0.5) * 18, territory.y + (Math.random() - 0.5) * 18, territory.id);
-          unit.path = [territory.id];
+          unit.faction = territory.owner;
+          unit.path = playerOrder ? findPath(territory.id, playerOrder) : [territory.id];
           territory.spawnTimer = 3.5 + Math.random() * 2.2;
         }
       }
@@ -569,7 +633,8 @@
         let best = null;
         let bestDist = Infinity;
         for (const candidate of allUnits) {
-          if (candidate.team === unit.team) continue;
+          const sameSide = candidate.team === unit.team && (unit.team !== 'enemy' || candidate.faction === unit.faction);
+          if (sameSide) continue;
           const dist = getDistance(unit, candidate);
           if (dist < bestDist) {
             bestDist = dist;
@@ -604,7 +669,8 @@
           for (let j = i + 1; j < allUnits.length; j++) {
             const a = allUnits[i];
             const b = allUnits[j];
-            if (a.team === b.team) continue;
+            const sameSide = a.team === b.team && (a.team !== 'enemy' || a.faction === b.faction);
+            if (sameSide) continue;
             const dx = b.x - a.x;
             const dy = b.y - a.y;
             const dist = Math.hypot(dx, dy) || 0.001;
@@ -630,7 +696,7 @@
           const nearestEnemy = getNearestEnemyUnit(unit);
           const currentTerritory = findTerritoryAt(unit.x, unit.y);
 
-          if (nearestEnemy && getDistance(unit, nearestEnemy) <= unit.range + 22) {
+          if (nearestEnemy && getDistance(unit, nearestEnemy) <= unit.range) {
             const dx = nearestEnemy.x - unit.x;
             const dy = nearestEnemy.y - unit.y;
             const dist = Math.hypot(dx, dy) || 1;
@@ -639,12 +705,12 @@
                 dealDamage(unit, nearestEnemy);
                 unit.cooldown = unit.attackSpeed;
               }
-            } else {
-              moveUnitToward(unit, nearestEnemy.x, nearestEnemy.y, dt);
             }
           } else {
             if (!unit.path || unit.path.length === 0) {
-              const targetTerritory = getNearestEnemyTerritory(unit);
+              const targetTerritory = unit.team === 'player' && unit.target
+                ? territoryLookup.get(unit.target)
+                : getNearestEnemyTerritory(unit);
               const origin = currentTerritory || territoryLookup.get(unit.currentTerritoryId) || territoryLookup.get(playerKingdom.homeId);
               if (origin && targetTerritory) {
                 unit.path = findPath(origin.id, targetTerritory.id);
@@ -670,7 +736,9 @@
           }
 
           if (currentTerritory) {
-            const isHostile = (unit.team === 'player' && currentTerritory.owner !== 'player') || (unit.team === 'enemy' && currentTerritory.owner !== 'enemy');
+            const isHostile = unit.team === 'player'
+              ? currentTerritory.owner !== 'player'
+              : currentTerritory.owner !== unit.faction;
             if (isHostile) {
               currentTerritory.capture += (unit.team === 'player' ? 1 : -1) * (unit.type === 'knight' ? 10 : unit.type === 'archer' ? 7.5 : 5.5) * dt;
             }
@@ -692,12 +760,20 @@
         const clicked = findTerritoryAt(x, y);
         if (!clicked) return;
 
-        for (const unit of allUnits) {
+        playerOrder = clicked.id;
+
+        const playerUnits = allUnits.filter((unit) => unit.team === 'player');
+        const commandUnits = event.shiftKey ? playerUnits.filter((unit) => Number(unit.id.slice(-2), 16) % 2 === 0) : playerUnits;
+        for (const unit of commandUnits) {
           if (unit.team !== 'player') continue;
-          const origin = territoryLookup.get(unit.currentTerritoryId) || territoryLookup.get(playerKingdom.homeId);
+          const origin = findTerritoryAt(unit.x, unit.y)
+            || territoryLookup.get(unit.currentTerritoryId)
+            || territoryLookup.get(playerKingdom.homeId);
           unit.path = origin ? findPath(origin.id, clicked.id) : [clicked.id];
           unit.target = clicked.id;
         }
+
+        updateHud();
       }
 
       canvas.addEventListener('click', handleCanvasClick);
@@ -716,6 +792,24 @@
         }
       }
 
+      function drawPlayerOrder() {
+        if (!playerOrder) return;
+        const destination = territoryLookup.get(playerOrder);
+        if (!destination) return;
+
+        ctx.strokeStyle = '#fff2a8';
+        ctx.lineWidth = 3;
+        ctx.setLineDash([8, 6]);
+        ctx.beginPath();
+        ctx.arc(destination.x, destination.y, destination.radius + 8, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.fillStyle = '#fff2a8';
+        ctx.font = 'bold 12px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText('ARMY ORDER', destination.x, destination.y + destination.radius + 24);
+      }
+
       function drawTerritory(territory) {
         ctx.beginPath();
         ctx.moveTo(territory.points[0].x, territory.points[0].y);
@@ -731,6 +825,19 @@
         ctx.font = '11px Arial';
         ctx.textAlign = 'center';
         ctx.fillText(territory.name, territory.x, territory.y + 4);
+
+        if (territory.castle) {
+          ctx.fillStyle = '#f5d58a';
+          ctx.fillRect(territory.x - 9, territory.y - 19, 18, 14);
+          ctx.fillStyle = '#fff1b8';
+          ctx.fillRect(territory.x - 13, territory.y - 23, 6, 18);
+          ctx.fillRect(territory.x + 7, territory.y - 23, 6, 18);
+          ctx.fillStyle = '#7b4b36';
+          ctx.fillRect(territory.x - 3, territory.y - 12, 6, 7);
+          ctx.strokeStyle = '#fff0a6';
+          ctx.lineWidth = 1;
+          ctx.strokeRect(territory.x - 15, territory.y - 25, 30, 22);
+        }
 
         if (territory.capture !== 0) {
           ctx.fillStyle = 'rgba(0,0,0,0.28)';
@@ -790,13 +897,14 @@
       function render() {
         drawBackground();
         drawRoads();
+        drawPlayerOrder();
         for (const territory of world.territories) drawTerritory(territory);
         for (const unit of allUnits) drawUnit(unit);
         drawVictoryText();
       }
 
       function checkWinState() {
-        const enemyTerritories = world.territories.filter((territory) => territory.owner === 'enemy').length;
+        const enemyTerritories = world.territories.filter((territory) => isEnemyOwner(territory.owner)).length;
         if (enemyTerritories === 0) {
           victory = true;
           gameOver = true;
