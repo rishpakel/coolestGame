@@ -1,1 +1,696 @@
-gopner
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Kingdom Command</title>
+    <style>
+      :root {
+        --bg: #0d1728;
+        --panel: rgba(13, 22, 35, 0.8);
+        --panel-border: rgba(124, 210, 255, 0.5);
+        --gold: #f3c86b;
+        --wood: #8d5b3d;
+        --food: #7ecb6a;
+        --player: #4fc3f7;
+        --enemy: #ef5350;
+        --neutral: #d7d7d7;
+      }
+
+      * { box-sizing: border-box; }
+
+      body {
+        margin: 0;
+        font-family: Arial, sans-serif;
+        background: linear-gradient(180deg, #07141d 0%, #0d1728 100%);
+        color: #eaf6ff;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        min-height: 100vh;
+      }
+
+      .game-shell {
+        width: min(1100px, 96vw);
+        background: rgba(11, 20, 30, 0.9);
+        border: 2px solid var(--panel-border);
+        border-radius: 16px;
+        box-shadow: 0 18px 60px rgba(0, 0, 0, 0.45);
+        overflow: hidden;
+      }
+
+      .top-bar {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 16px;
+        padding: 14px 18px;
+        background: rgba(17, 31, 49, 0.9);
+        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+      }
+
+      .title h1 {
+        margin: 0;
+        font-size: 1.5rem;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+      }
+
+      .title span {
+        color: #9ad9ff;
+        font-size: 0.78rem;
+        letter-spacing: 0.12em;
+      }
+
+      .resources {
+        display: flex;
+        gap: 12px;
+        flex-wrap: wrap;
+      }
+
+      .resource-pill {
+        min-width: 120px;
+        padding: 8px 12px;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.04);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 8px;
+        font-weight: 700;
+      }
+
+      .resource-pill .dot {
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        display: inline-block;
+      }
+
+      .panel {
+        display: grid;
+        grid-template-columns: 240px 1fr;
+      }
+
+      .sidebar {
+        background: rgba(14, 21, 31, 0.9);
+        border-right: 1px solid rgba(255, 255, 255, 0.1);
+        padding: 18px 14px;
+      }
+
+      .card {
+        background: rgba(255, 255, 255, 0.03);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 12px;
+        padding: 12px;
+        margin-bottom: 14px;
+      }
+
+      .card h2 {
+        margin: 0 0 10px;
+        font-size: 0.95rem;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: #9fd8ff;
+      }
+
+      .button-grid {
+        display: grid;
+        gap: 10px;
+      }
+
+      button {
+        width: 100%;
+        padding: 10px 12px;
+        border: none;
+        border-radius: 10px;
+        background: linear-gradient(180deg, #2a7ad4, #1d4d97);
+        color: white;
+        font-weight: 700;
+        cursor: pointer;
+        transition: transform 0.1s ease, filter 0.2s ease;
+      }
+
+      button:hover {
+        transform: translateY(-1px);
+        filter: brightness(1.08);
+      }
+
+      button:active {
+        transform: translateY(0);
+      }
+
+      .button-meta {
+        display: flex;
+        justify-content: space-between;
+        font-size: 0.75rem;
+        margin-top: 8px;
+        opacity: 0.9;
+      }
+
+      .status-box {
+        font-size: 0.82rem;
+        line-height: 1.5;
+      }
+
+      canvas {
+        display: block;
+        width: 100%;
+        height: 620px;
+        background: linear-gradient(180deg, #163143 0%, #0d1d2f 100%);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="game-shell">
+      <div class="top-bar">
+        <div class="title">
+          <h1>Kingdom Command</h1>
+          <span>One kingdom. One war.</span>
+        </div>
+        <div class="resources">
+          <div class="resource-pill"><span class="dot" style="background: var(--gold);"></span> Gold <strong id="goldValue">0</strong></div>
+          <div class="resource-pill"><span class="dot" style="background: var(--wood);"></span> Wood <strong id="woodValue">0</strong></div>
+          <div class="resource-pill"><span class="dot" style="background: var(--food);"></span> Food <strong id="foodValue">0</strong></div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <aside class="sidebar">
+          <div class="card">
+            <h2>Raise Army</h2>
+            <div class="button-grid">
+              <div>
+                <button id="recruitPeasant">Recruit Peasant</button>
+                <div class="button-meta"><span>Cost: 10 gold</span><span>HP 24</span></div>
+              </div>
+              <div>
+                <button id="recruitArcher">Recruit Archer</button>
+                <div class="button-meta"><span>Cost: 18 gold</span><span>Ranged</span></div>
+              </div>
+              <div>
+                <button id="recruitKnight">Recruit Knight</button>
+                <div class="button-meta"><span>Cost: 30 gold</span><span>Heavy</span></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="card">
+            <h2>Kingdom</h2>
+            <div class="status-box" id="kingdomStatus"></div>
+          </div>
+        </aside>
+
+        <canvas id="gameCanvas" width="860" height="620"></canvas>
+      </div>
+    </div>
+
+    <script>
+      const canvas = document.getElementById('gameCanvas');
+      const ctx = canvas.getContext('2d');
+
+      const goldValue = document.getElementById('goldValue');
+      const woodValue = document.getElementById('woodValue');
+      const foodValue = document.getElementById('foodValue');
+      const kingdomStatus = document.getElementById('kingdomStatus');
+
+      const world = {
+        width: canvas.width,
+        height: canvas.height,
+        resources: [
+          { x: 230, y: 145, type: 'wood', amount: 180, color: '#8d5b3d' },
+          { x: 210, y: 500, type: 'food', amount: 160, color: '#7ecb6a' },
+          { x: 640, y: 150, type: 'wood', amount: 180, color: '#8d5b3d' },
+          { x: 700, y: 470, type: 'food', amount: 160, color: '#7ecb6a' }
+        ]
+      };
+
+      const playerKingdom = {
+        name: 'Crimson Reach',
+        x: 120,
+        y: 310,
+        radius: 34,
+        hp: 500,
+        maxHp: 500,
+        gold: 140,
+        wood: 100,
+        food: 110,
+        units: [],
+        target: null,
+        harvesters: 0,
+        incomeTick: 0
+      };
+
+      const enemyKingdoms = [
+        { name: 'North Vale', x: 680, y: 130, radius: 36, hp: 420, maxHp: 420, color: '#ef5350', units: [], spawnTimer: 0, bonus: 1 },
+        { name: 'Sun Crown', x: 700, y: 480, radius: 36, hp: 440, maxHp: 440, color: '#ff8a65', units: [], spawnTimer: 0, bonus: 1.2 },
+        { name: 'Ash Siege', x: 540, y: 310, radius: 36, hp: 520, maxHp: 520, color: '#e57373', units: [], spawnTimer: 0, bonus: 1.4 }
+      ];
+
+      const allUnits = [];
+      const projectiles = [];
+      let lastFrame = 0;
+      let gameOver = false;
+
+      function clamp(value, min, max) {
+        return Math.min(Math.max(value, min), max);
+      }
+
+      function getDistance(a, b) {
+        return Math.hypot(a.x - b.x, a.y - b.y);
+      }
+
+      function addResourceIncome() {
+        playerKingdom.gold += 1.6;
+        playerKingdom.food += 1.2;
+        playerKingdom.wood += 1.3;
+      }
+
+      function updateHud() {
+        goldValue.textContent = Math.floor(playerKingdom.gold);
+        woodValue.textContent = Math.floor(playerKingdom.wood);
+        foodValue.textContent = Math.floor(playerKingdom.food);
+
+        const enemyCount = enemyKingdoms.filter((k) => k.hp > 0).length;
+        kingdomStatus.innerHTML = `
+          <strong>${playerKingdom.name}</strong><br>
+          Castle HP: ${Math.max(0, Math.floor(playerKingdom.hp))}/${playerKingdom.maxHp}<br>
+          Enemy kingdoms left: ${enemyCount}<br>
+          Command: attack the nearest enemy stronghold<br>
+          <em>Click an enemy castle to focus attacks.</em>
+        `;
+      }
+
+      function createUnit(type, team, x, y, kingdom) {
+        const unitTypes = {
+          peasant: { hp: 26, speed: 58, damage: 7, range: 20, cooldown: 0.7, color: team === 'player' ? '#79d4ff' : '#ff9a9a', radius: 8 },
+          archer: { hp: 34, speed: 50, damage: 12, range: 120, cooldown: 1.0, color: team === 'player' ? '#9be7ff' : '#ffc0a8', radius: 9 },
+          knight: { hp: 60, speed: 65, damage: 16, range: 24, cooldown: 0.9, color: team === 'player' ? '#5bc0ff' : '#ff7777', radius: 10 }
+        };
+
+        const template = unitTypes[type];
+        const unit = {
+          id: Math.random().toString(16).slice(2),
+          type,
+          team,
+          x,
+          y,
+          radius: template.radius,
+          hp: template.hp,
+          maxHp: template.hp,
+          speed: template.speed,
+          damage: template.damage,
+          range: template.range,
+          cooldown: 0,
+          attackSpeed: template.cooldown,
+          color: template.color,
+          target: null,
+          home: kingdom,
+          hitFlash: 0
+        };
+
+        allUnits.push(unit);
+        kingdom.units.push(unit);
+        return unit;
+      }
+
+      function recruitUnit(type) {
+        if (gameOver) return;
+
+        const costs = { peasant: { gold: 10 }, archer: { gold: 18 }, knight: { gold: 30 } };
+        const cost = costs[type];
+
+        if (playerKingdom.gold < cost.gold) {
+          return;
+        }
+
+        playerKingdom.gold -= cost.gold;
+        const spawnX = playerKingdom.x + 24 + Math.random() * 20;
+        const spawnY = playerKingdom.y + 24 + Math.random() * 20;
+        createUnit(type, 'player', spawnX, spawnY, playerKingdom);
+        updateHud();
+      }
+
+      document.getElementById('recruitPeasant').addEventListener('click', () => recruitUnit('peasant'));
+      document.getElementById('recruitArcher').addEventListener('click', () => recruitUnit('archer'));
+      document.getElementById('recruitKnight').addEventListener('click', () => recruitUnit('knight'));
+
+      function spawnEnemyUnits() {
+        for (const kingdom of enemyKingdoms) {
+          if (kingdom.hp <= 0) continue;
+
+          kingdom.spawnTimer -= 1 / 60;
+          if (kingdom.spawnTimer <= 0) {
+            const typeRoll = Math.random();
+            const type = typeRoll < 0.55 ? 'peasant' : typeRoll < 0.85 ? 'archer' : 'knight';
+            const offset = kingdom.radius + 18;
+            const x = kingdom.x + (Math.random() - 0.5) * 40 + 10;
+            const y = kingdom.y + (Math.random() - 0.5) * 40 + 10;
+            const unit = createUnit(type, 'enemy', x, y, kingdom);
+            unit.target = playerKingdom;
+            kingdom.spawnTimer = 3 + Math.random() * 2.5;
+            if (unit.type === 'knight') {
+              unit.hp *= 1.2;
+              unit.maxHp = unit.hp;
+            }
+          }
+        }
+      }
+
+      function targetClosestEnemy(unit) {
+        let bestTarget = null;
+        let bestDist = Infinity;
+
+        for (const targetKingdom of enemyKingdoms) {
+          if (targetKingdom.hp <= 0) continue;
+          const dist = getDistance(unit, targetKingdom);
+          if (dist < bestDist) {
+            bestDist = dist;
+            bestTarget = targetKingdom;
+          }
+        }
+
+        for (const enemyUnit of allUnits) {
+          if (enemyUnit.team === unit.team) continue;
+          const dist = getDistance(unit, enemyUnit);
+          if (dist < bestDist) {
+            bestDist = dist;
+            bestTarget = enemyUnit;
+          }
+        }
+
+        return bestTarget;
+      }
+
+      function dealDamage(attacker, target) {
+        if (!target || target.hp <= 0) return;
+
+        target.hp -= attacker.damage;
+        target.hitFlash = 0.12;
+
+        if (target.hp <= 0) {
+          target.hp = 0;
+
+          if (target.name) {
+            target.hp = 0;
+            for (let i = target.units.length - 1; i >= 0; i--) {
+              if (target.units[i].id === attacker.id) continue;
+            }
+          }
+
+          if (target.team === 'enemy') {
+            if (Math.random() < 0.35) {
+              playerKingdom.gold += 10;
+            }
+          }
+        }
+      }
+
+      function removeDeadUnits() {
+        for (let i = allUnits.length - 1; i >= 0; i--) {
+          const unit = allUnits[i];
+          if (unit.hp <= 0) {
+            const home = unit.home;
+            if (home && home.units) {
+              const index = home.units.indexOf(unit);
+              if (index >= 0) home.units.splice(index, 1);
+            }
+            allUnits.splice(i, 1);
+          }
+        }
+      }
+
+      function updateUnits(dt) {
+        for (const unit of allUnits) {
+          if (unit.hp <= 0) continue;
+
+          unit.cooldown = Math.max(0, unit.cooldown - dt);
+          unit.hitFlash = Math.max(0, unit.hitFlash - dt);
+
+          if (!unit.target || unit.target.hp <= 0) {
+            unit.target = targetClosestEnemy(unit);
+          }
+
+          if (!unit.target || unit.target.hp <= 0) continue;
+
+          const dx = unit.target.x - unit.x;
+          const dy = unit.target.y - unit.y;
+          const dist = Math.hypot(dx, dy);
+
+          if (dist > unit.range * 0.9) {
+            const speed = unit.speed * dt;
+            const moveX = (dx / (dist || 1)) * speed;
+            const moveY = (dy / (dist || 1)) * speed;
+            unit.x += moveX;
+            unit.y += moveY;
+          }
+
+          if (dist <= unit.range) {
+            if (unit.cooldown <= 0) {
+              dealDamage(unit, unit.target);
+              unit.cooldown = unit.attackSpeed;
+            }
+          }
+        }
+
+        for (const kingdom of enemyKingdoms) {
+          if (kingdom.hp <= 0) continue;
+
+          const targetDist = getDistance(kingdom, playerKingdom);
+          if (targetDist < 200 && Math.random() < 0.013) {
+            const type = Math.random() < 0.55 ? 'peasant' : Math.random() < 0.82 ? 'archer' : 'knight';
+            const unit = createUnit(type, 'enemy', kingdom.x + 10, kingdom.y + 10, kingdom);
+            unit.target = playerKingdom;
+          }
+        }
+
+        removeDeadUnits();
+      }
+
+      function updateKingdomCombat(dt) {
+        for (const kingdom of enemyKingdoms) {
+          if (kingdom.hp <= 0) continue;
+
+          for (const unit of allUnits) {
+            if (unit.team === 'player' && getDistance(unit, kingdom) < 32) {
+              kingdom.hp -= unit.damage * dt * 0.7;
+            }
+          }
+
+          if (kingdom.hp <= 0) {
+            kingdom.hp = 0;
+            const reward = 45 + Math.random() * 30;
+            playerKingdom.gold += reward;
+            playerKingdom.food += 20;
+            playerKingdom.wood += 15;
+          }
+        }
+
+        if (playerKingdom.hp <= 0) {
+          gameOver = true;
+          playerKingdom.hp = 0;
+        }
+      }
+
+      function handleCanvasClick(event) {
+        if (gameOver) return;
+
+        const rect = canvas.getBoundingClientRect();
+        const scaleX = canvas.width / rect.width;
+        const scaleY = canvas.height / rect.height;
+        const x = (event.clientX - rect.left) * scaleX;
+        const y = (event.clientY - rect.top) * scaleY;
+
+        for (const kingdom of enemyKingdoms) {
+          if (getDistance({ x, y }, kingdom) <= kingdom.radius + 8) {
+            playerKingdom.target = kingdom;
+            for (const unit of allUnits) {
+              if (unit.team === 'player') {
+                unit.target = kingdom;
+              }
+            }
+            return;
+          }
+        }
+
+        for (const resource of world.resources) {
+          if (Math.hypot(x - resource.x, y - resource.y) < 18) {
+            if (playerKingdom.food < 180 && resource.type === 'food') {
+              playerKingdom.food += 10;
+            } else if (playerKingdom.wood < 180 && resource.type === 'wood') {
+              playerKingdom.wood += 10;
+            }
+            return;
+          }
+        }
+      }
+
+      canvas.addEventListener('click', handleCanvasClick);
+
+      function spriteCircle(x, y, radius, color, fillAlpha = 1) {
+        ctx.beginPath();
+        ctx.fillStyle = color.replace(')', `, ${fillAlpha})`).replace('rgb', 'rgba');
+        ctx.arc(x, y, radius, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      function drawCastle(kingdom) {
+        const hpRatio = kingdom.hp / kingdom.maxHp;
+        ctx.fillStyle = kingdom.color;
+        ctx.fillRect(kingdom.x - 26, kingdom.y - 26, 52, 52);
+
+        ctx.fillStyle = '#102338';
+        ctx.fillRect(kingdom.x - 30, kingdom.y + 32, 60, 8);
+        ctx.fillStyle = '#8ae95f';
+        ctx.fillRect(kingdom.x - 30, kingdom.y + 32, 60 * hpRatio, 8);
+
+        ctx.fillStyle = '#f9efd1';
+        ctx.font = '12px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText(kingdom.name, kingdom.x, kingdom.y - 42);
+      }
+
+      function drawResourceNode(node) {
+        ctx.beginPath();
+        ctx.fillStyle = node.color;
+        ctx.arc(node.x, node.y, 16, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = '#d7f8ff';
+        ctx.font = '10px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText(node.type === 'wood' ? 'Wood' : 'Food', node.x, node.y + 28);
+      }
+
+      function drawUnit(unit) {
+        ctx.beginPath();
+        ctx.fillStyle = unit.color;
+        ctx.arc(unit.x, unit.y, unit.radius, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = '#0d1728';
+        ctx.fillRect(unit.x - 12, unit.y - unit.radius - 12, 24, 5);
+        ctx.fillStyle = '#7ce382';
+        ctx.fillRect(unit.x - 12, unit.y - unit.radius - 12, 24 * (unit.hp / unit.maxHp), 5);
+      }
+
+      function drawBackground() {
+        ctx.clearRect(0, 0, world.width, world.height);
+
+        const grass = ctx.createLinearGradient(0, 0, 0, world.height);
+        grass.addColorStop(0, '#1a3f51');
+        grass.addColorStop(1, '#10263a');
+        ctx.fillStyle = grass;
+        ctx.fillRect(0, 0, world.width, world.height);
+
+        ctx.strokeStyle = 'rgba(255,255,255,0.04)';
+        ctx.lineWidth = 1;
+        for (let x = 0; x < world.width; x += 40) {
+          ctx.beginPath();
+          ctx.moveTo(x, 0);
+          ctx.lineTo(x, world.height);
+          ctx.stroke();
+        }
+        for (let y = 0; y < world.height; y += 40) {
+          ctx.beginPath();
+          ctx.moveTo(0, y);
+          ctx.lineTo(world.width, y);
+          ctx.stroke();
+        }
+      }
+
+      function drawPlayerCastle() {
+        const { x, y, hp, maxHp } = playerKingdom;
+        ctx.fillStyle = '#4fc3f7';
+        ctx.fillRect(x - 28, y - 28, 56, 56);
+
+        ctx.fillStyle = '#0d1728';
+        ctx.fillRect(x - 34, y + 34, 68, 8);
+        ctx.fillStyle = '#89f3a0';
+        ctx.fillRect(x - 34, y + 34, 68 * (hp / maxHp), 8);
+
+        ctx.fillStyle = '#f3faff';
+        ctx.font = '12px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText(playerKingdom.name, x, y - 40);
+      }
+
+      function drawVictoryText() {
+        if (gameOver) {
+          ctx.fillStyle = 'rgba(0,0,0,0.55)';
+          ctx.fillRect(0, 0, world.width, world.height);
+
+          ctx.fillStyle = '#fff';
+          ctx.font = 'bold 44px Arial';
+          ctx.textAlign = 'center';
+          ctx.fillText(playerKingdom.hp > 0 ? 'Victory!' : 'Defeat', world.width / 2, world.height / 2 - 20);
+          ctx.font = '20px Arial';
+          ctx.fillText('Reload the page to play again', world.width / 2, world.height / 2 + 30);
+        }
+      }
+
+      function render() {
+        drawBackground();
+
+        for (const node of world.resources) {
+          drawResourceNode(node);
+        }
+
+        drawPlayerCastle();
+        for (const kingdom of enemyKingdoms) {
+          if (kingdom.hp > 0) {
+            drawCastle(kingdom);
+          }
+        }
+
+        for (const unit of allUnits) {
+          drawUnit(unit);
+        }
+
+        drawVictoryText();
+      }
+
+      function update(dt) {
+        if (gameOver) return;
+
+        addResourceIncome();
+        spawnEnemyUnits();
+        updateUnits(dt);
+        updateKingdomCombat(dt);
+
+        const livingEnemies = enemyKingdoms.filter((k) => k.hp > 0).length;
+        if (livingEnemies === 0) {
+          gameOver = true;
+        }
+
+        updateHud();
+      }
+
+      function loop(timestamp) {
+        const dt = Math.min((timestamp - lastFrame) / 1000 || 0.016, 0.033);
+        lastFrame = timestamp;
+
+        update(dt);
+        render();
+        requestAnimationFrame(loop);
+      }
+
+      function initialize() {
+        for (let i = 0; i < 4; i++) {
+          createUnit('peasant', 'player', playerKingdom.x + 20 + i * 14, playerKingdom.y + 20 + i * 10, playerKingdom);
+        }
+
+        for (const kingdom of enemyKingdoms) {
+          kingdom.spawnTimer = 2 + Math.random() * 2;
+        }
+
+        updateHud();
+        requestAnimationFrame(loop);
+      }
+
+      initialize();
+    </script>
+  </body>
+</html>
+
