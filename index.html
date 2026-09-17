@@ -88,6 +88,20 @@
         display: inline-block;
       }
 
+      .resource-rate {
+        color: #a9c7d8;
+        font-size: 0.72rem;
+        font-weight: 600;
+        white-space: nowrap;
+      }
+
+      .play-again {
+        display: none;
+        width: auto;
+        padding: 8px 14px;
+        background: linear-gradient(180deg, #39b978, #247b58);
+      }
+
       .panel {
         display: grid;
         grid-template-columns: 240px 1fr;
@@ -118,6 +132,12 @@
       .button-grid {
         display: grid;
         gap: 10px;
+      }
+
+      .trade-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
       }
 
       button {
@@ -170,9 +190,10 @@
           <span>One kingdom. One war.</span>
         </div>
         <div class="resources">
-          <div class="resource-pill"><span class="dot" style="background: var(--gold);"></span> Gold <strong id="goldValue">0</strong></div>
-          <div class="resource-pill"><span class="dot" style="background: var(--wood);"></span> Wood <strong id="woodValue">0</strong></div>
-          <div class="resource-pill"><span class="dot" style="background: var(--food);"></span> Food <strong id="foodValue">0</strong></div>
+          <div class="resource-pill"><span class="dot" style="background: var(--gold);"></span> Gold <strong id="goldValue">0</strong><span class="resource-rate" id="goldRate">+0.00/s</span></div>
+          <div class="resource-pill"><span class="dot" style="background: var(--wood);"></span> Wood <strong id="woodValue">0</strong><span class="resource-rate" id="woodRate">+0.00/s</span></div>
+          <div class="resource-pill"><span class="dot" style="background: var(--food);"></span> Food <strong id="foodValue">0</strong><span class="resource-rate" id="foodRate">+0.00/s</span></div>
+          <button type="button" class="play-again" id="playAgain">Play Again</button>
         </div>
       </div>
 
@@ -183,7 +204,7 @@
             <div class="button-grid">
               <div>
                 <button id="recruitPeasant">Recruit Peasant</button>
-                <div class="button-meta"><span>Cost: 10 gold</span><span>HP 24</span></div>
+                <div class="button-meta"><span>Cost: 12g, 5w, 6f</span><span>HP 28</span></div>
               </div>
               <div>
                 <button id="recruitArcher">Recruit Archer</button>
@@ -205,14 +226,38 @@
             <h2>Economy</h2>
             <div class="button-grid">
               <div>
-                <button id="buildFarm">Build Farm</button>
-                <div class="button-meta"><span>Cost: 16 wood</span><span>+ food</span></div>
+                <button type="button" id="buildFarm">Build Farm</button>
+                <div class="button-meta"><span>Cost: 16 wood</span><span>+3 food/s</span></div>
               </div>
               <div>
-                <button id="buildLumberMill">Build Lumber Mill</button>
-                <div class="button-meta"><span>Cost: 15 wood</span><span>+ wood</span></div>
+                <button type="button" id="buildLumberMill">Build Lumber Mill</button>
+                <div class="button-meta"><span>Cost: 15 wood</span><span>+4.5 wood/s</span></div>
+              </div>
+              <div>
+                <button type="button" id="tradeWood">Trade Wood for Gold</button>
+                <div class="button-meta"><span>100 wood</span><span>+10 gold</span></div>
+              </div>
+              <div>
+                <button type="button" id="tradeFood">Trade Food for Gold</button>
+                <div class="button-meta"><span>100 food</span><span>+10 gold</span></div>
+              </div>
+              <div class="trade-grid">
+                <div>
+                  <button type="button" id="tradeLargeWood">Trade 1000 Wood</button>
+                  <div class="button-meta"><span>1000 wood</span><span>+100 gold</span></div>
+                </div>
+                <div>
+                  <button type="button" id="tradeLargeFood">Trade 1000 Food</button>
+                  <div class="button-meta"><span>1000 food</span><span>+100 gold</span></div>
+                </div>
               </div>
             </div>
+          </div>
+
+          <div class="card">
+            <h2>Defenses</h2>
+            <button id="buildWall">Build Wall on Road</button>
+            <div class="button-meta"><span>Cost: 10 wood</span><span>Blocks enemies</span></div>
           </div>
         </aside>
 
@@ -227,7 +272,11 @@
       const goldValue = document.getElementById('goldValue');
       const woodValue = document.getElementById('woodValue');
       const foodValue = document.getElementById('foodValue');
+      const goldRate = document.getElementById('goldRate');
+      const woodRate = document.getElementById('woodRate');
+      const foodRate = document.getElementById('foodRate');
       const kingdomStatus = document.getElementById('kingdomStatus');
+      const playAgain = document.getElementById('playAgain');
 
       function hashString(str) {
         let h = 0;
@@ -240,8 +289,8 @@
       function makeTerritory(id, name, owner, x, y, color, radius = 32) {
         const points = [];
         const seed = hashString(id);
-        for (let i = 0; i < 8; i++) {
-          const angle = (Math.PI * 2 * i) / 8;
+        for (let i = 0; i < 12; i++) {
+          const angle = (Math.PI * 2 * i) / 12;
           const drift = 0.84 + (((seed >> ((i % 5) * 3)) & 7) / 16);
           const r = radius * drift;
           points.push({ x: x + Math.cos(angle) * r, y: y + Math.sin(angle) * r });
@@ -267,35 +316,44 @@
           ['iron-crown', 'Iron Crown', 'player', 140, 260, '#4fc3f7'],
           ['river-glade', 'River Glade', 'player', 110, 500, '#4fc3f7'],
           ['moss-gate', 'Moss Gate', 'neutral', 150, 170, '#d7d7d7'],
+          ['westmere', 'Westmere', 'neutral', 55, 175, '#d7d7d7'],
+          ['north-field', 'North Field', 'neutral', 330, 45, '#d7d7d7'],
           ['stone-ward', 'Stone Ward', 'neutral', 260, 120, '#d7d7d7'],
           ['sun-gate', 'Sun Gate', 'enemy-north', 330, 180, '#ef5350'],
           ['frost-basin', 'Frost Basin', 'enemy-east', 470, 120, '#ff8a65'],
           ['ashen-ford', 'Ashen Ford', 'neutral', 610, 170, '#d7d7d7'],
+          ['eastmere', 'Eastmere', 'neutral', 680, 70, '#d7d7d7'],
           ['storm-spur', 'Storm Spur', 'enemy-east', 720, 150, '#ff8a65'],
           ['gale-vault', 'Gale Vault', 'enemy-south', 800, 90, '#ce93d8'],
           ['iron-falls', 'Iron Falls', 'neutral', 780, 235, '#d7d7d7'],
+          ['high-cliff', 'High Cliff', 'neutral', 840, 285, '#d7d7d7'],
           ['red-ridge', 'Red Ridge', 'enemy-south', 780, 360, '#ce93d8'],
           ['grave-dune', 'Grave Dune', 'enemy-west', 820, 490, '#ffca70'],
           ['cinder-hall', 'Cinder Hall', 'enemy-south', 700, 300, '#ce93d8'],
           ['glass-falls', 'Glass Falls', 'neutral', 620, 290, '#d7d7d7'],
           ['salt-marsh', 'Salt Marsh', 'neutral', 700, 500, '#d7d7d7'],
+          ['low-marsh', 'Low Marsh', 'neutral', 635, 515, '#d7d7d7'],
           ['drift-veil', 'Drift Veil', 'enemy-west', 760, 560, '#ffca70'],
-          ['copper-reef', 'Copper Reef', 'neutral', 630, 645, '#d7d7d7'],
-          ['golden-harbor', 'Golden Harbor', 'neutral', 500, 610, '#d7d7d7'],
-          ['misty-pines', 'Misty Pines', 'neutral', 450, 700, '#d7d7d7'],
-          ['wren-moor', 'Wren Moor', 'enemy-west', 320, 690, '#ffca70'],
+          ['copper-reef', 'Copper Reef', 'neutral', 630, 545, '#d7d7d7'],
+          ['golden-harbor', 'Golden Harbor', 'neutral', 500, 525, '#d7d7d7'],
+          ['south-harbor', 'South Harbor', 'neutral', 545, 585, '#d7d7d7'],
+          ['misty-pines', 'Misty Pines', 'neutral', 450, 565, '#d7d7d7'],
+          ['wren-moor', 'Wren Moor', 'enemy-west', 320, 555, '#ffca70'],
           ['wild-steppe', 'Wild Steppe', 'neutral', 300, 580, '#d7d7d7'],
+          ['south-field', 'South Field', 'neutral', 235, 520, '#d7d7d7'],
           ['crimson-pass', 'Crimson Pass', 'enemy-north', 360, 500, '#ef5350'],
           ['black-water', 'Black Water', 'neutral', 500, 450, '#d7d7d7'],
           ['mire-bridge', 'Mire Bridge', 'neutral', 570, 385, '#d7d7d7'],
           ['ember-fields', 'Ember Fields', 'neutral', 470, 260, '#d7d7d7'],
           ['hollow-cross', 'Hollow Cross', 'neutral', 170, 300, '#d7d7d7'],
+          ['west-cross', 'West Cross', 'neutral', 75, 330, '#d7d7d7'],
           ['sunken-road', 'Sunken Road', 'neutral', 290, 330, '#d7d7d7'],
           ['thorn-hold', 'Thorn Hold', 'neutral', 280, 430, '#d7d7d7'],
           ['old-forest', 'Old Forest', 'neutral', 200, 430, '#d7d7d7'],
-          ['brass-grove', 'Brass Grove', 'neutral', 170, 630, '#d7d7d7'],
-          ['deep-hedge', 'Deep Hedge', 'neutral', 80, 660, '#d7d7d7'],
+          ['brass-grove', 'Brass Grove', 'neutral', 170, 535, '#d7d7d7'],
+          ['deep-hedge', 'Deep Hedge', 'neutral', 80, 555, '#d7d7d7'],
           ['cloud-break', 'Cloud Break', 'neutral', 210, 70, '#d7d7d7'],
+          ['north-road', 'North Road', 'neutral', 280, 55, '#d7d7d7'],
           ['sable-pit', 'Sable Pit', 'neutral', 90, 90, '#d7d7d7'],
           ['white-vale', 'White Vale', 'enemy-north', 420, 90, '#ef5350'],
           ['barrow-hill', 'Barrow Hill', 'neutral', 330, 270, '#d7d7d7'],
@@ -303,49 +361,83 @@
           ['viper-spring', 'Viper Spring', 'neutral', 560, 190, '#d7d7d7']
         ];
 
-        const territories = defs.map(([id, name, owner, x, y, color]) => makeTerritory(id, name, owner, x, y, color));
+        for (let row = 0; row < 4; row++) {
+          for (let column = 0; column < 5; column++) {
+            const id = `lattice-${row}-${column}`;
+            defs.push([id, `Lattice ${row * 5 + column + 1}`, 'neutral', 60 + column * 180, 45 + row * 135, '#d7d7d7', 22]);
+          }
+        }
+
+        const territories = defs.map(([id, name, owner, x, y, color, radius]) => makeTerritory(id, name, owner, x, y, color, radius || 32));
+        const enemyOwners = ['enemy-north', 'enemy-east', 'enemy-south', 'enemy-west'];
+        const enemyTerritories = territories.filter((territory) => isEnemyOwner(territory.owner));
+        for (let i = enemyTerritories.length - 1; i > 0; i--) {
+          const swapIndex = Math.floor(Math.random() * (i + 1));
+          [enemyTerritories[i], enemyTerritories[swapIndex]] = [enemyTerritories[swapIndex], enemyTerritories[i]];
+        }
+        enemyTerritories.forEach((territory, index) => {
+          territory.owner = enemyOwners[index % enemyOwners.length];
+          territory.color = getEnemyColor(territory.owner);
+        });
         const castleIds = new Set(['sun-gate', 'frost-basin', 'gale-vault', 'red-ridge', 'grave-dune', 'crimson-pass']);
         for (const territory of territories) {
           territory.castle = castleIds.has(territory.id);
           territory.goldIncome = territory.castle ? 0.18 : 0.02;
         }
         const roads = [
-          ['iron-crown', 'river-glade'], ['iron-crown', 'hollow-cross'], ['iron-crown', 'old-forest'], ['iron-crown', 'moss-gate'],
+          ['iron-crown', 'river-glade'], ['iron-crown', 'hollow-cross'], ['iron-crown', 'old-forest'], ['iron-crown', 'moss-gate'], ['iron-crown', 'westmere'],
           ['river-glade', 'old-forest'], ['river-glade', 'deep-hedge'], ['river-glade', 'brass-grove'],
-          ['moss-gate', 'cloud-break'], ['moss-gate', 'stone-ward'], ['moss-gate', 'hollow-cross'],
-          ['stone-ward', 'sun-gate'], ['stone-ward', 'white-vale'], ['stone-ward', 'cloud-break'],
+          ['moss-gate', 'cloud-break'], ['moss-gate', 'stone-ward'], ['moss-gate', 'hollow-cross'], ['moss-gate', 'westmere'],
+          ['westmere', 'hollow-cross'], ['westmere', 'sable-pit'],
+          ['stone-ward', 'sun-gate'], ['stone-ward', 'white-vale'], ['stone-ward', 'cloud-break'], ['stone-ward', 'north-road'],
+          ['north-road', 'cloud-break'], ['north-road', 'north-field'], ['north-field', 'white-vale'],
           ['sun-gate', 'white-vale'], ['sun-gate', 'barrow-hill'], ['sun-gate', 'frost-basin'],
           ['white-vale', 'frost-basin'], ['white-vale', 'cloud-break'],
           ['frost-basin', 'ashen-ford'], ['frost-basin', 'storm-spur'], ['frost-basin', 'viper-spring'],
-          ['ashen-ford', 'viper-spring'], ['ashen-ford', 'glass-falls'], ['ashen-ford', 'storm-spur'],
+          ['ashen-ford', 'viper-spring'], ['ashen-ford', 'glass-falls'], ['ashen-ford', 'storm-spur'], ['ashen-ford', 'eastmere'],
+          ['eastmere', 'storm-spur'], ['eastmere', 'gale-vault'],
           ['storm-spur', 'gale-vault'], ['storm-spur', 'cinder-hall'], ['storm-spur', 'glass-falls'],
-          ['gale-vault', 'iron-falls'], ['gale-vault', 'storm-spur'],
-          ['iron-falls', 'red-ridge'], ['iron-falls', 'cinder-hall'],
+          ['gale-vault', 'iron-falls'], ['gale-vault', 'storm-spur'], ['gale-vault', 'eastmere'],
+          ['iron-falls', 'red-ridge'], ['iron-falls', 'cinder-hall'], ['iron-falls', 'high-cliff'],
+          ['high-cliff', 'red-ridge'], ['high-cliff', 'grave-dune'],
           ['red-ridge', 'cinder-hall'], ['red-ridge', 'grave-dune'], ['red-ridge', 'salt-marsh'],
           ['grave-dune', 'salt-marsh'], ['grave-dune', 'drift-veil'],
           ['cinder-hall', 'glass-falls'], ['cinder-hall', 'mire-bridge'], ['cinder-hall', 'salt-marsh'],
           ['glass-falls', 'mire-bridge'], ['glass-falls', 'noble-trench'], ['glass-falls', 'viper-spring'],
-          ['mire-bridge', 'black-water'], ['mire-bridge', 'noble-trench'], ['mire-bridge', 'salt-marsh'],
+          ['mire-bridge', 'black-water'], ['mire-bridge', 'noble-trench'], ['mire-bridge', 'salt-marsh'], ['mire-bridge', 'low-marsh'],
+          ['low-marsh', 'salt-marsh'], ['low-marsh', 'south-harbor'],
           ['black-water', 'noble-trench'], ['black-water', 'ember-fields'], ['black-water', 'crimson-pass'],
           ['noble-trench', 'ember-fields'], ['noble-trench', 'viper-spring'], ['noble-trench', 'barrow-hill'],
           ['ember-fields', 'barrow-hill'], ['ember-fields', 'sunken-road'], ['ember-fields', 'thorn-hold'],
           ['barrow-hill', 'sun-gate'], ['barrow-hill', 'sunken-road'],
-          ['hollow-cross', 'sunken-road'], ['hollow-cross', 'old-forest'], ['hollow-cross', 'moss-gate'],
+          ['hollow-cross', 'sunken-road'], ['hollow-cross', 'old-forest'], ['hollow-cross', 'moss-gate'], ['hollow-cross', 'west-cross'],
+          ['west-cross', 'old-forest'], ['west-cross', 'sable-pit'],
           ['old-forest', 'thorn-hold'], ['old-forest', 'sunken-road'],
           ['sunken-road', 'thorn-hold'], ['sunken-road', 'wild-steppe'], ['sunken-road', 'crimson-pass'],
           ['thorn-hold', 'crimson-pass'], ['thorn-hold', 'wild-steppe'], ['thorn-hold', 'wren-moor'],
           ['crimson-pass', 'wild-steppe'], ['crimson-pass', 'wren-moor'], ['crimson-pass', 'black-water'],
-          ['wild-steppe', 'wren-moor'], ['wild-steppe', 'golden-harbor'], ['wild-steppe', 'brass-grove'],
+          ['wild-steppe', 'wren-moor'], ['wild-steppe', 'golden-harbor'], ['wild-steppe', 'brass-grove'], ['wild-steppe', 'south-field'],
+          ['south-field', 'thorn-hold'], ['south-field', 'south-harbor'],
           ['wren-moor', 'golden-harbor'], ['wren-moor', 'misty-pines'], ['wren-moor', 'brass-grove'],
           ['golden-harbor', 'misty-pines'], ['golden-harbor', 'copper-reef'], ['golden-harbor', 'drift-veil'],
           ['misty-pines', 'copper-reef'], ['misty-pines', 'brass-grove'], ['misty-pines', 'deep-hedge'],
           ['copper-reef', 'drift-veil'], ['copper-reef', 'salt-marsh'],
           ['drift-veil', 'salt-marsh'],
           ['brass-grove', 'deep-hedge'], ['brass-grove', 'river-glade'],
-          ['deep-hedge', 'river-glade']
+          ['deep-hedge', 'river-glade'], ['south-harbor', 'golden-harbor'], ['south-harbor', 'copper-reef']
         ];
 
-        return { territories, roads };
+        for (let row = 0; row < 4; row++) {
+          for (let column = 0; column < 5; column++) {
+            const id = `lattice-${row}-${column}`;
+            if (column < 4) roads.push([id, `lattice-${row}-${column + 1}`]);
+            if (row < 3) roads.push([id, `lattice-${row + 1}-${column}`]);
+          }
+        }
+        roads.push(['lattice-0-0', 'sable-pit'], ['lattice-1-0', 'westmere'], ['lattice-3-2', 'south-harbor']);
+        const limitedRoads = limitRoadConnections(roads, territories, 4);
+
+        return { territories, roads: limitedRoads };
       }
 
       const world = buildWorld();
@@ -366,7 +458,16 @@
       };
 
       const allUnits = [];
+      const walls = [];
+      let wallMode = false;
+      let aiWallTimer = 8;
+      let newNationTimer = 180;
+      let nextNationId = 1;
       let playerOrder = null;
+      let commandDivisor = 1;
+      let actionMessage = '';
+      let nextGroupId = 1;
+      const aiOrders = new Map();
       let lastFrame = 0;
       let gameOver = false;
       let victory = false;
@@ -415,7 +516,7 @@
           'enemy-south': 'Violet Dominion',
           'enemy-west': 'Golden Horde'
         };
-        return names[owner] || owner;
+        return names[owner] || `New Nation ${owner.split('-').pop()}`;
       }
 
       function getEnemyColor(owner) {
@@ -425,7 +526,62 @@
           'enemy-south': '#ce93d8',
           'enemy-west': '#ffca70'
         };
-        return colors[owner] || '#ef5350';
+        if (colors[owner]) return colors[owner];
+        const palette = ['#81c784', '#64b5f6', '#ffb74d', '#ba68c8', '#4dd0e1', '#e57373'];
+        return palette[hashString(owner) % palette.length];
+      }
+
+      function limitRoadConnections(roads, territories, maximum) {
+        const ids = territories.map((territory) => territory.id);
+        const isConnected = (candidateRoads) => {
+          const graph = new Map(ids.map((id) => [id, []]));
+          for (const [a, b] of candidateRoads) {
+            graph.get(a).push(b);
+            graph.get(b).push(a);
+          }
+          const visited = new Set(['iron-crown']);
+          const queue = ['iron-crown'];
+          while (queue.length > 0) {
+            const current = queue.shift();
+            for (const next of graph.get(current)) {
+              if (visited.has(next)) continue;
+              visited.add(next);
+              queue.push(next);
+            }
+          }
+          return visited.size === ids.length;
+        };
+
+        const limited = [...roads];
+        const degree = new Map(ids.map((id) => [id, 0]));
+        for (const [a, b] of limited) {
+          degree.set(a, degree.get(a) + 1);
+          degree.set(b, degree.get(b) + 1);
+        }
+
+        for (const territory of territories) {
+          while (degree.get(territory.id) > maximum) {
+            const candidates = limited
+              .map((road, index) => ({ road, index }))
+              .filter(({ road }) => road[0] === territory.id || road[1] === territory.id)
+              .sort((left, right) => {
+                const leftOther = left.road[0] === territory.id ? left.road[1] : left.road[0];
+                const rightOther = right.road[0] === territory.id ? right.road[1] : right.road[0];
+                return degree.get(rightOther) - degree.get(leftOther);
+              });
+            const removable = candidates.find(({ road, index }) => {
+              const other = road[0] === territory.id ? road[1] : road[0];
+              if (degree.get(other) <= 1) return false;
+              const test = limited.slice(0, index).concat(limited.slice(index + 1));
+              return isConnected(test);
+            });
+            if (!removable) break;
+            const [a, b] = limited.splice(removable.index, 1)[0];
+            degree.set(a, degree.get(a) - 1);
+            degree.set(b, degree.get(b) - 1);
+          }
+        }
+        return limited;
       }
 
       function findPath(startId, endId) {
@@ -455,16 +611,40 @@
       function getNearestEnemyTerritory(unit) {
         let best = null;
         let bestDist = Infinity;
+        const factionTerritoryCount = unit.team === 'enemy'
+          ? world.territories.filter((territory) => territory.owner === unit.faction).length
+          : Infinity;
         for (const territory of world.territories) {
           if (unit.team === 'player' && territory.owner === 'player') continue;
           if (unit.team === 'enemy' && territory.owner === unit.faction) continue;
+          if (unit.team === 'enemy' && factionTerritoryCount < 5 && territory.owner !== 'neutral') continue;
+          if (unit.team === 'enemy' && factionTerritoryCount >= 5 && territory.owner === 'neutral') continue;
           const dist = getDistance(unit, territory);
-          if (dist < bestDist) {
-            bestDist = dist;
+          const rivalBonus = unit.team === 'enemy' && territory.owner !== 'player' ? 0.65 : 1;
+          const kingdomSize = territory.owner === 'neutral'
+            ? 0
+            : world.territories.filter((candidate) => candidate.owner === territory.owner).length;
+          const largestKingdomPriority = 1 + kingdomSize * 0.12;
+          const targetScore = (dist * rivalBonus) / largestKingdomPriority;
+          if (targetScore < bestDist) {
+            bestDist = targetScore;
             best = territory;
           }
         }
         return best;
+      }
+
+      function getAiOrderTarget(unit) {
+        const factionTerritoryCount = world.territories.filter((territory) => territory.owner === unit.faction).length;
+        const currentOrder = aiOrders.get(unit.faction);
+        const orderedTerritory = currentOrder ? territoryLookup.get(currentOrder) : null;
+        const validSmallKingdomTarget = factionTerritoryCount < 5
+          ? orderedTerritory?.owner === 'neutral'
+          : orderedTerritory?.owner !== 'neutral';
+        if (orderedTerritory && orderedTerritory.owner !== unit.faction && validSmallKingdomTarget) return orderedTerritory;
+        const target = getNearestEnemyTerritory(unit);
+        if (target) aiOrders.set(unit.faction, target.id);
+        return target;
       }
 
       function updateHud() {
@@ -473,6 +653,12 @@
         foodValue.textContent = Math.floor(playerKingdom.food);
 
         const controlled = getControlledTerritories('player');
+        const territoryGold = world.territories
+          .filter((territory) => territory.owner === 'player')
+          .reduce((total, territory) => total + territory.goldIncome * (territory.castle && territory.capture !== 0 ? 2 : 1), 0);
+        goldRate.textContent = `+${((0.10 + territoryGold) * 10).toFixed(2)}/s`;
+        woodRate.textContent = `+${(playerKingdom.woodIncome + controlled * 0.01).toFixed(2)}/s`;
+        foodRate.textContent = `+${(playerKingdom.foodIncome + controlled * 0.01).toFixed(2)}/s`;
         const enemyControlled = world.territories.filter((territory) => isEnemyOwner(territory.owner)).length;
         const neutral = world.territories.filter((territory) => territory.owner === 'neutral').length;
         const enemyKingdoms = new Set(world.territories.filter((territory) => isEnemyOwner(territory.owner)).map((territory) => territory.owner));
@@ -482,9 +668,54 @@
           Controlled territories: ${controlled}/${world.territories.length}<br>
           Enemy territories: ${enemyControlled} across ${enemyKingdoms.size} enemy kingdoms<br>
           Neutral zones: ${neutral}<br>
-          Castles take longer to capture but generate more gold.<br>
+          Groups contain up to 10 troops. Castles take longer to capture but generate more gold.<br>
+          Number keys: 1 = all troops, 2 = half, 3 = one third, and so on.<br>
+          ${wallMode ? 'Wall mode: click a road to place a wall.' : 'Build walls to block enemy roads.'}<br>
+          ${actionMessage ? `${actionMessage}<br>` : ''}
           ${playerOrder ? `Army ordered to: ${territoryLookup.get(playerOrder)?.name || 'destination'}` : 'Click a territory to order your army.'}
         `;
+      }
+
+      function getRoadPlacement(x, y) {
+        let best = null;
+        let bestDistance = 18;
+        for (const [a, b] of world.roads) {
+          const start = territoryLookup.get(a);
+          const end = territoryLookup.get(b);
+          const dx = end.x - start.x;
+          const dy = end.y - start.y;
+          const lengthSquared = dx * dx + dy * dy;
+          const progress = clamp(((x - start.x) * dx + (y - start.y) * dy) / lengthSquared, 0, 1);
+          const wallX = start.x + dx * progress;
+          const wallY = start.y + dy * progress;
+          const distance = Math.hypot(x - wallX, y - wallY);
+          if (distance < bestDistance) {
+            bestDistance = distance;
+            best = { a, b, progress, x: wallX, y: wallY };
+          }
+        }
+        return best;
+      }
+
+      function getWallOnRoad(a, b) {
+        return walls.find((wall) => (wall.a === a && wall.b === b) || (wall.a === b && wall.b === a));
+      }
+
+      function getWallBlockingUnit(unit, from, to) {
+        const wall = getWallOnRoad(from.id, to.id);
+        if (!wall) return null;
+        if (unit.team === 'enemy' && wall.owner === unit.faction) return null;
+        if (unit.team === 'player' && wall.owner === 'player') return null;
+        const dx = to.x - from.x;
+        const dy = to.y - from.y;
+        const lengthSquared = dx * dx + dy * dy;
+        const progress = clamp(((unit.x - from.x) * dx + (unit.y - from.y) * dy) / lengthSquared, 0, 1);
+        const wallProgress = wall.a === from.id ? wall.progress : 1 - wall.progress;
+        return progress < wallProgress + 0.025 ? wall : null;
+      }
+
+      function enemyBlockedByWall(unit, from, to) {
+        return Boolean(unit.team === 'enemy' && getWallBlockingUnit(unit, from, to));
       }
 
       function createUnit(type, team, x, y, territoryId) {
@@ -495,6 +726,7 @@
         };
 
         const template = unitTypes[type];
+        const enemyScale = team === 'enemy' ? 0.82 : 1;
         const unit = {
           id: Math.random().toString(16).slice(2),
           type,
@@ -503,17 +735,18 @@
           x,
           y,
           radius: template.radius,
-          hp: template.hp,
-          maxHp: template.hp,
-          speed: template.speed,
-          damage: template.damage,
+          hp: template.hp * enemyScale,
+          maxHp: template.hp * enemyScale,
+          speed: template.speed * enemyScale,
+          damage: template.damage * enemyScale,
           range: template.range,
           cooldown: 0,
-          attackSpeed: template.cooldown,
-          color: template.color,
+          attackSpeed: template.cooldown * (team === 'enemy' ? 1.18 : 1),
+          color: team === 'enemy' ? getEnemyColor(territoryId) : template.color,
           path: [],
           currentTerritoryId: territoryId || playerKingdom.homeId,
-          target: null
+          target: null,
+          groupId: null
         };
 
         allUnits.push(unit);
@@ -523,19 +756,56 @@
           const origin = territoryLookup.get(territoryId) || territoryLookup.get(playerKingdom.homeId);
           unit.target = playerOrder;
           unit.path = origin ? findPath(origin.id, playerOrder) : [playerOrder];
+          assignUnitToGroup(unit);
         }
         return unit;
       }
 
+      function assignUnitToGroup(unit) {
+        if (unit.team !== 'player' || !unit.target) return;
+        const matchingGroups = new Map();
+        for (const member of playerKingdom.units) {
+          if (member === unit || member.target !== unit.target || !member.groupId) continue;
+          matchingGroups.set(member.groupId, (matchingGroups.get(member.groupId) || 0) + 1);
+        }
+        const availableGroup = [...matchingGroups.entries()].find(([, count]) => count < 10);
+        unit.groupId = availableGroup ? availableGroup[0] : `army-${nextGroupId++}`;
+      }
+
+      function assignUnitsToGroups(units) {
+        let groupId = null;
+        let groupCount = 0;
+        for (const unit of units) {
+          if (groupCount === 0 || groupCount >= 10) {
+            groupId = `army-${nextGroupId++}`;
+            groupCount = 0;
+          }
+          unit.groupId = groupId;
+          groupCount += 1;
+        }
+      }
+
       function recruitUnit(type) {
-        if (gameOver) return;
+        if (gameOver) {
+          actionMessage = 'Recruiting is unavailable after the battle ends.';
+          updateHud();
+          return;
+        }
         const costs = {
           peasant: { gold: 12, wood: 5, food: 6 },
           archer: { gold: 20, wood: 9, food: 8 },
           knight: { gold: 32, wood: 15, food: 11 }
         };
         const cost = costs[type];
-        if (playerKingdom.gold < cost.gold || playerKingdom.wood < cost.wood || playerKingdom.food < cost.food) return;
+        const missing = [];
+        if (playerKingdom.gold < cost.gold) missing.push(`${cost.gold} gold`);
+        if (playerKingdom.wood < cost.wood) missing.push(`${cost.wood} wood`);
+        if (playerKingdom.food < cost.food) missing.push(`${cost.food} food`);
+        if (missing.length > 0) {
+          actionMessage = `Need ${missing.join(' and ')} to recruit.`;
+          updateHud();
+          return;
+        }
 
         playerKingdom.gold -= cost.gold;
         playerKingdom.wood -= cost.wood;
@@ -543,17 +813,30 @@
 
         const home = territoryLookup.get(playerKingdom.homeId);
         const unit = createUnit(type, 'player', home.x + 16 + Math.random() * 10, home.y + 18 + Math.random() * 10, home.id);
-        unit.path = [home.id];
+        if (!playerOrder) unit.path = [home.id];
+        actionMessage = `${type[0].toUpperCase() + type.slice(1)} joined the army.`;
         updateHud();
       }
 
       function buildFarm() {
-        if (gameOver) return;
-        if (playerKingdom.wood < 16 || playerKingdom.food < 12) return;
+        if (gameOver) {
+          actionMessage = 'Farms cannot be built after the battle ends.';
+          updateHud();
+          return;
+        }
+        const missing = [];
+        if (playerKingdom.wood < 16) missing.push('16 wood');
+        if (playerKingdom.food < 12) missing.push('12 food');
+        if (missing.length > 0) {
+          actionMessage = `Need ${missing.join(' and ')} to build a farm.`;
+          updateHud();
+          return;
+        }
         playerKingdom.wood -= 16;
         playerKingdom.food -= 12;
         playerKingdom.farmLevel += 1;
-        playerKingdom.foodIncome += 0.18;
+        playerKingdom.foodIncome += 3;
+        actionMessage = 'Farm built: +3 food/s.';
         updateHud();
       }
 
@@ -563,8 +846,44 @@
         playerKingdom.wood -= 15;
         playerKingdom.food -= 14;
         playerKingdom.lumberLevel += 1;
-        playerKingdom.woodIncome += 0.18;
+        playerKingdom.woodIncome += 4.5;
         updateHud();
+      }
+
+      function tradeResource(resource, amount = 100, gold = 10) {
+        if (gameOver) {
+          actionMessage = 'Trading is unavailable after the battle ends.';
+          updateHud();
+          return;
+        }
+        if (playerKingdom[resource] < amount) {
+          actionMessage = `Need ${amount} ${resource} to trade for ${gold} gold.`;
+          updateHud();
+          return;
+        }
+        playerKingdom[resource] -= amount;
+        playerKingdom.gold += gold;
+        actionMessage = `Traded ${amount} ${resource} for ${gold} gold.`;
+        updateHud();
+      }
+
+      function spawnNewNation() {
+        const neutralTerritories = world.territories.filter((territory) => territory.owner === 'neutral');
+        if (neutralTerritories.length === 0) return;
+        const territory = neutralTerritories[Math.floor(Math.random() * neutralTerritories.length)];
+        const owner = `enemy-new-${nextNationId++}`;
+        territory.owner = owner;
+        territory.color = getEnemyColor(owner);
+        territory.capture = 0;
+        territory.spawnTimer = 2 + Math.random() * 3;
+        actionMessage = `${getEnemyName(owner)} has risen in ${territory.name}.`;
+      }
+
+      function updateNewNations(dt) {
+        newNationTimer -= dt;
+        if (newNationTimer > 0) return;
+        spawnNewNation();
+        newNationTimer = 180;
       }
 
       document.getElementById('recruitPeasant').addEventListener('click', () => recruitUnit('peasant'));
@@ -572,18 +891,32 @@
       document.getElementById('recruitKnight').addEventListener('click', () => recruitUnit('knight'));
       document.getElementById('buildFarm').addEventListener('click', buildFarm);
       document.getElementById('buildLumberMill').addEventListener('click', buildLumberMill);
+      document.getElementById('tradeWood').addEventListener('click', () => tradeResource('wood'));
+      document.getElementById('tradeFood').addEventListener('click', () => tradeResource('food'));
+      document.getElementById('tradeLargeWood').addEventListener('click', () => tradeResource('wood', 1000, 100));
+      document.getElementById('tradeLargeFood').addEventListener('click', () => tradeResource('food', 1000, 100));
+      document.getElementById('buildWall').addEventListener('click', () => {
+        if (playerKingdom.wood < 10 || gameOver) return;
+        wallMode = !wallMode;
+        updateHud();
+      });
 
-      function updateTerritoryCapture() {
+      function updateTerritoryCapture(dt) {
         for (const territory of world.territories) {
           const unitsHere = allUnits.filter((unit) => getDistance(unit, territory) <= territory.radius + 8);
-          const playerUnitsHere = unitsHere.filter((unit) => unit.team === 'player').length;
-          const enemyUnitsHere = unitsHere.filter((unit) => unit.team === 'enemy').length;
-
-          const captureRate = territory.castle ? 0.38 : 0.9;
+          const captureRate = territory.castle ? 0.50 : 1.20;
+          const captureStrength = (unit) => unit.type === 'knight' ? 1.2 : unit.type === 'archer' ? 0.9 : 0.7;
+          const playerStrength = unitsHere
+            .filter((unit) => unit.team === 'player')
+            .reduce((total, unit) => total + captureStrength(unit), 0);
           const hostileEnemyUnitsHere = unitsHere.filter((unit) => unit.team === 'enemy' && unit.faction !== territory.owner);
-          if (playerUnitsHere > 0 && territory.owner !== 'player') territory.capture += playerUnitsHere * captureRate;
-          if (hostileEnemyUnitsHere.length > 0 && territory.owner !== 'neutral') territory.capture -= hostileEnemyUnitsHere.length * captureRate;
-          if (hostileEnemyUnitsHere.length > 0 && territory.owner === 'neutral') territory.capture -= hostileEnemyUnitsHere.length * captureRate;
+          const enemyStrength = hostileEnemyUnitsHere.reduce((total, unit) => total + captureStrength(unit), 0);
+
+          const playerCapturePower = playerStrength > 0 ? Math.sqrt(playerStrength) * 2.4 : 0;
+          const enemyCapturePower = enemyStrength > 0 ? Math.sqrt(enemyStrength) * 1.6 : 0;
+          if (playerCapturePower > 0 && territory.owner !== 'player') territory.capture += playerCapturePower * captureRate * dt;
+          if (enemyCapturePower > 0 && territory.owner !== 'neutral') territory.capture -= enemyCapturePower * captureRate * dt;
+          if (enemyCapturePower > 0 && territory.owner === 'neutral') territory.capture -= enemyCapturePower * captureRate * dt;
 
           if (territory.capture >= 100) {
             territory.owner = 'player';
@@ -604,14 +937,14 @@
         }
       }
 
-      function addResourceIncome() {
+      function addResourceIncome(dt) {
         const controlled = getControlledTerritories('player');
         const territoryGold = world.territories
           .filter((territory) => territory.owner === 'player')
           .reduce((total, territory) => total + territory.goldIncome, 0);
-        playerKingdom.gold += 0.10 + territoryGold;
-        playerKingdom.food += playerKingdom.foodIncome + controlled * 0.01;
-        playerKingdom.wood += playerKingdom.woodIncome + controlled * 0.01;
+        playerKingdom.gold += (0.10 + territoryGold) * 10 * dt;
+        playerKingdom.food += (playerKingdom.foodIncome + controlled * 0.01) * dt;
+        playerKingdom.wood += (playerKingdom.woodIncome + controlled * 0.01) * dt;
       }
 
       function spawnEnemyUnits(dt) {
@@ -624,9 +957,41 @@
           const type = roll < 0.58 ? 'peasant' : roll < 0.85 ? 'archer' : 'knight';
           const unit = createUnit(type, 'enemy', territory.x + (Math.random() - 0.5) * 18, territory.y + (Math.random() - 0.5) * 18, territory.id);
           unit.faction = territory.owner;
-          unit.path = playerOrder ? findPath(territory.id, playerOrder) : [territory.id];
-          territory.spawnTimer = 3.5 + Math.random() * 2.2;
+          unit.color = getEnemyColor(unit.faction);
+          unit.path = [territory.id];
+          const target = getAiOrderTarget(unit);
+          if (target) unit.path = findPath(territory.id, target.id);
+          territory.spawnTimer = 5 + Math.random() * 3;
         }
+      }
+
+      function buildEnemyWall() {
+        const enemyTerritories = world.territories.filter((territory) => isEnemyOwner(territory.owner));
+        if (enemyTerritories.length === 0) return;
+        const territory = enemyTerritories[Math.floor(Math.random() * enemyTerritories.length)];
+        const roads = world.roads.filter(([a, b]) => a === territory.id || b === territory.id);
+        const openRoad = roads.find(([a, b]) => !getWallOnRoad(a, b));
+        if (!openRoad) return;
+        const [a, b] = openRoad;
+        const start = territoryLookup.get(a);
+        const end = territoryLookup.get(b);
+        walls.push({
+          a,
+          b,
+          progress: 0.5,
+          x: (start.x + end.x) / 2,
+          y: (start.y + end.y) / 2,
+          owner: territory.owner,
+          hp: 120,
+          maxHp: 120
+        });
+      }
+
+      function updateEnemyWalls(dt) {
+        aiWallTimer -= dt;
+        if (aiWallTimer > 0) return;
+        buildEnemyWall();
+        aiWallTimer = 12 + Math.random() * 8;
       }
 
       function getNearestEnemyUnit(unit) {
@@ -652,6 +1017,16 @@
           if (attacker.team === 'player' && target.team === 'enemy') {
             playerKingdom.gold += 7;
           }
+        }
+      }
+
+      function dealWallDamage(attacker, wall) {
+        if (!wall || wall.hp <= 0 || attacker.cooldown > 0) return;
+        wall.hp -= attacker.damage;
+        attacker.cooldown = attacker.attackSpeed;
+        if (wall.hp <= 0) {
+          const index = walls.indexOf(wall);
+          if (index >= 0) walls.splice(index, 1);
         }
       }
 
@@ -710,7 +1085,7 @@
             if (!unit.path || unit.path.length === 0) {
               const targetTerritory = unit.team === 'player' && unit.target
                 ? territoryLookup.get(unit.target)
-                : getNearestEnemyTerritory(unit);
+                : getAiOrderTarget(unit);
               const origin = currentTerritory || territoryLookup.get(unit.currentTerritoryId) || territoryLookup.get(playerKingdom.homeId);
               if (origin && targetTerritory) {
                 unit.path = findPath(origin.id, targetTerritory.id);
@@ -722,6 +1097,12 @@
               const nextId = unit.path[0];
               const target = territoryLookup.get(nextId);
               if (target) {
+                const origin = territoryLookup.get(unit.currentTerritoryId) || currentTerritory;
+                const blockingWall = origin ? getWallBlockingUnit(unit, origin, target) : null;
+                if (blockingWall) {
+                  dealWallDamage(unit, blockingWall);
+                  continue;
+                }
                 const distToTarget = getDistance(unit, target);
                 if (distToTarget <= 6) {
                   unit.x = target.x;
@@ -735,18 +1116,10 @@
             }
           }
 
-          if (currentTerritory) {
-            const isHostile = unit.team === 'player'
-              ? currentTerritory.owner !== 'player'
-              : currentTerritory.owner !== unit.faction;
-            if (isHostile) {
-              currentTerritory.capture += (unit.team === 'player' ? 1 : -1) * (unit.type === 'knight' ? 10 : unit.type === 'archer' ? 7.5 : 5.5) * dt;
-            }
-          }
         }
 
         resolveOpposingCollisions();
-        updateTerritoryCapture();
+        updateTerritoryCapture(dt);
         for (let i = allUnits.length - 1; i >= 0; i--) {
           if (allUnits[i].hp <= 0) allUnits.splice(i, 1);
         }
@@ -757,13 +1130,31 @@
         const rect = canvas.getBoundingClientRect();
         const x = (event.clientX - rect.left) * (canvas.width / rect.width);
         const y = (event.clientY - rect.top) * (canvas.height / rect.height);
+
+        if (wallMode) {
+          const placement = getRoadPlacement(x, y);
+          if (!placement || getWallOnRoad(placement.a, placement.b)) return;
+          if (playerKingdom.wood < 10) {
+            wallMode = false;
+            updateHud();
+            return;
+          }
+          playerKingdom.wood -= 10;
+          walls.push({ ...placement, owner: 'player', hp: 120, maxHp: 120 });
+          updateHud();
+          return;
+        }
+
         const clicked = findTerritoryAt(x, y);
         if (!clicked) return;
 
         playerOrder = clicked.id;
 
         const playerUnits = allUnits.filter((unit) => unit.team === 'player');
-        const commandUnits = event.shiftKey ? playerUnits.filter((unit) => Number(unit.id.slice(-2), 16) % 2 === 0) : playerUnits;
+        const commandedCount = Math.max(1, Math.ceil(playerUnits.length / commandDivisor));
+        const commandUnits = event.shiftKey
+          ? playerUnits.filter((unit) => Number(unit.id.slice(-2), 16) % 2 === 0).slice(0, commandedCount)
+          : playerUnits.slice(0, commandedCount);
         for (const unit of commandUnits) {
           if (unit.team !== 'player') continue;
           const origin = findTerritoryAt(unit.x, unit.y)
@@ -772,11 +1163,22 @@
           unit.path = origin ? findPath(origin.id, clicked.id) : [clicked.id];
           unit.target = clicked.id;
         }
+        assignUnitsToGroups(commandUnits);
 
         updateHud();
       }
 
       canvas.addEventListener('click', handleCanvasClick);
+
+      window.addEventListener('keydown', (event) => {
+        if (event.key >= '1' && event.key <= '9') {
+          commandDivisor = Number(event.key);
+          actionMessage = commandDivisor === 1
+            ? 'Next order will send your whole army.'
+            : `Next order will send 1/${commandDivisor} of your army.`;
+          updateHud();
+        }
+      });
 
       function drawRoads() {
         ctx.lineWidth = 6;
@@ -789,6 +1191,35 @@
           ctx.moveTo(ta.x, ta.y);
           ctx.lineTo(tb.x, tb.y);
           ctx.stroke();
+        }
+      }
+
+      function drawWalls() {
+        for (const wall of walls) {
+          const start = territoryLookup.get(wall.a);
+          const end = territoryLookup.get(wall.b);
+          const dx = end.x - start.x;
+          const dy = end.y - start.y;
+          const length = Math.hypot(dx, dy) || 1;
+          const nx = -dy / length;
+          const ny = dx / length;
+          const halfWidth = 17;
+          ctx.strokeStyle = '#70452f';
+          ctx.lineWidth = 8;
+          ctx.beginPath();
+          ctx.moveTo(wall.x - nx * halfWidth, wall.y - ny * halfWidth);
+          ctx.lineTo(wall.x + nx * halfWidth, wall.y + ny * halfWidth);
+          ctx.stroke();
+          ctx.strokeStyle = '#d39b55';
+          ctx.lineWidth = 3;
+          ctx.beginPath();
+          ctx.moveTo(wall.x - nx * halfWidth, wall.y - ny * halfWidth);
+          ctx.lineTo(wall.x + nx * halfWidth, wall.y + ny * halfWidth);
+          ctx.stroke();
+          ctx.fillStyle = '#e9f4ff';
+          ctx.font = '10px Arial';
+          ctx.textAlign = 'center';
+          ctx.fillText(`${Math.ceil(wall.hp)}`, wall.x, wall.y - 22);
         }
       }
 
@@ -847,7 +1278,7 @@
         }
       }
 
-      function drawUnit(unit) {
+      function drawUnit(unit, stackCount = 1) {
         ctx.beginPath();
         ctx.fillStyle = unit.color;
         ctx.arc(unit.x, unit.y, unit.radius, 0, Math.PI * 2);
@@ -857,6 +1288,56 @@
         ctx.fillRect(unit.x - 12, unit.y - unit.radius - 10, 24, 5);
         ctx.fillStyle = '#7ce382';
         ctx.fillRect(unit.x - 12, unit.y - unit.radius - 10, 24 * (unit.hp / unit.maxHp), 5);
+
+        if (stackCount > 1) {
+          ctx.fillStyle = '#101b2b';
+          ctx.beginPath();
+          ctx.arc(unit.x + unit.radius - 1, unit.y - unit.radius + 1, 9, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = '#ffffff';
+          ctx.font = 'bold 11px Arial';
+          ctx.textAlign = 'center';
+          ctx.fillText(String(stackCount), unit.x + unit.radius - 1, unit.y - unit.radius + 5);
+        }
+      }
+
+      function getUnitStacks() {
+        const unstacked = allUnits.filter((unit) => unit.hp > 0);
+        const stacks = [];
+        const used = new Set();
+
+        for (const unit of unstacked) {
+          if (used.has(unit.id)) continue;
+          const members = unstacked.filter((candidate) => {
+            const sameSide = candidate.team === unit.team
+              && (unit.team !== 'enemy' || candidate.faction === unit.faction);
+            return !used.has(candidate.id)
+              && sameSide
+              && candidate.type === unit.type
+              && getDistance(unit, candidate) <= unit.radius + candidate.radius + 5;
+          });
+
+          members.forEach((member) => used.add(member.id));
+          const center = members.reduce((total, member) => ({
+            x: total.x + member.x,
+            y: total.y + member.y
+          }), { x: 0, y: 0 });
+          const totalHp = members.reduce((total, member) => total + member.hp, 0);
+          const totalMaxHp = members.reduce((total, member) => total + member.maxHp, 0);
+          stacks.push({
+            unit: {
+              ...unit,
+              x: center.x / members.length,
+              y: center.y / members.length,
+              radius: unit.radius + Math.min(5, (members.length - 1) * 1.5),
+              hp: totalHp,
+              maxHp: totalMaxHp
+            },
+            count: members.length
+          });
+        }
+
+        return stacks;
       }
 
       function drawBackground() {
@@ -897,9 +1378,10 @@
       function render() {
         drawBackground();
         drawRoads();
+        drawWalls();
         drawPlayerOrder();
         for (const territory of world.territories) drawTerritory(territory);
-        for (const unit of allUnits) drawUnit(unit);
+        for (const stack of getUnitStacks()) drawUnit(stack.unit, stack.count);
         drawVictoryText();
       }
 
@@ -915,12 +1397,17 @@
           victory = false;
           gameOver = true;
         }
+        if (gameOver) playAgain.style.display = 'block';
       }
+
+      playAgain.addEventListener('click', () => window.location.reload());
 
       function update(dt) {
         if (gameOver) return;
-        addResourceIncome();
+        addResourceIncome(dt);
+        updateNewNations(dt);
         spawnEnemyUnits(dt);
+        updateEnemyWalls(dt);
         updateUnits(dt);
         checkWinState();
         updateHud();
@@ -943,6 +1430,15 @@
 
         for (const territory of world.territories) {
           territory.spawnTimer = 2 + Math.random() * 2.8;
+          if (isEnemyOwner(territory.owner) && Math.random() < 0.7) {
+            const roll = Math.random();
+            const type = roll < 0.55 ? 'peasant' : roll < 0.85 ? 'archer' : 'knight';
+            const patrol = createUnit(type, 'enemy', territory.x + (Math.random() - 0.5) * 12, territory.y + (Math.random() - 0.5) * 12, territory.id);
+            patrol.faction = territory.owner;
+            patrol.color = getEnemyColor(patrol.faction);
+            const target = getAiOrderTarget(patrol);
+            patrol.path = target ? findPath(territory.id, target.id) : [territory.id];
+          }
         }
 
         updateHud();
