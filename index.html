@@ -178,7 +178,9 @@
         display: block;
         width: 100%;
         height: 620px;
-        background: linear-gradient(180deg, #163143 0%, #0d1d2f 100%);
+        background: linear-gradient(180deg, #426f43 0%, #234a32 100%);
+        cursor: crosshair;
+        touch-action: none;
       }
     </style>
   </head>
@@ -311,6 +313,50 @@
         };
       }
 
+      function buildContiguousTerritoryCells(territories) {
+        const bounds = [
+          { x: 0, y: 0 },
+          { x: canvas.width, y: 0 },
+          { x: canvas.width, y: canvas.height },
+          { x: 0, y: canvas.height }
+        ];
+
+        const clipCell = (cell, site, otherSite) => {
+          const a = 2 * (otherSite.x - site.x);
+          const b = 2 * (otherSite.y - site.y);
+          const c = otherSite.x * otherSite.x + otherSite.y * otherSite.y
+            - site.x * site.x - site.y * site.y;
+          const inside = (point) => a * point.x + b * point.y <= c + 0.0001;
+          const clipped = [];
+
+          for (let index = 0; index < cell.length; index++) {
+            const current = cell[index];
+            const next = cell[(index + 1) % cell.length];
+            const currentInside = inside(current);
+            const nextInside = inside(next);
+            if (currentInside) clipped.push(current);
+            if (currentInside !== nextInside) {
+              const dx = next.x - current.x;
+              const dy = next.y - current.y;
+              const denominator = a * dx + b * dy;
+              const progress = denominator === 0 ? 0 : (c - a * current.x - b * current.y) / denominator;
+              clipped.push({ x: current.x + dx * progress, y: current.y + dy * progress });
+            }
+          }
+          return clipped;
+        };
+
+        for (const territory of territories) {
+          let cell = bounds.map((point) => ({ ...point }));
+          for (const otherTerritory of territories) {
+            if (territory === otherTerritory) continue;
+            cell = clipCell(cell, territory, otherTerritory);
+            if (cell.length === 0) break;
+          }
+          territory.points = cell;
+        }
+      }
+
       function buildWorld() {
         const defs = [
           ['iron-crown', 'Iron Crown', 'player', 140, 260, '#4fc3f7'],
@@ -369,13 +415,21 @@
         }
 
         const territories = defs.map(([id, name, owner, x, y, color, radius]) => makeTerritory(id, name, owner, x, y, color, radius || 32));
+        buildContiguousTerritoryCells(territories);
         const enemyOwners = ['enemy-north', 'enemy-east', 'enemy-south', 'enemy-west'];
-        const enemyTerritories = territories.filter((territory) => isEnemyOwner(territory.owner));
-        for (let i = enemyTerritories.length - 1; i > 0; i--) {
+        const enemyStartCount = territories.filter((territory) => isEnemyOwner(territory.owner)).length;
+        const possibleEnemyStarts = territories.filter((territory) => territory.owner !== 'player');
+        for (let i = possibleEnemyStarts.length - 1; i > 0; i--) {
           const swapIndex = Math.floor(Math.random() * (i + 1));
-          [enemyTerritories[i], enemyTerritories[swapIndex]] = [enemyTerritories[swapIndex], enemyTerritories[i]];
+          [possibleEnemyStarts[i], possibleEnemyStarts[swapIndex]] = [possibleEnemyStarts[swapIndex], possibleEnemyStarts[i]];
         }
-        enemyTerritories.forEach((territory, index) => {
+        territories.forEach((territory) => {
+          if (territory.owner !== 'player') {
+            territory.owner = 'neutral';
+            territory.color = '#7b9b62';
+          }
+        });
+        possibleEnemyStarts.slice(0, enemyStartCount).forEach((territory, index) => {
           territory.owner = enemyOwners[index % enemyOwners.length];
           territory.color = getEnemyColor(territory.owner);
         });
@@ -435,7 +489,9 @@
           }
         }
         roads.push(['lattice-0-0', 'sable-pit'], ['lattice-1-0', 'westmere'], ['lattice-3-2', 'south-harbor']);
-        const limitedRoads = limitRoadConnections(roads, territories, 4);
+        const uniqueRoads = [...new Map(roads.map(([a, b]) => [[a, b].sort().join('|'), [a, b]])).values()];
+        const spacedRoads = selectRoadNetwork(uniqueRoads, territories, 24);
+        const limitedRoads = limitRoadConnections(spacedRoads, territories, 4);
 
         return { territories, roads: limitedRoads };
       }
@@ -446,6 +502,7 @@
       const playerKingdom = {
         name: 'Iron Crown',
         homeId: 'iron-crown',
+        recruitmentTerritoryId: 'iron-crown',
         gold: 60,
         wood: 60,
         food: 60,
@@ -464,16 +521,26 @@
       let newNationTimer = 180;
       let nextNationId = 1;
       let playerOrder = null;
-      let commandDivisor = 1;
       let actionMessage = '';
       let nextGroupId = 1;
       const aiOrders = new Map();
+      const troopSelection = new Set();
+      let selectionBox = null;
+      let suppressNextCanvasClick = false;
+      const troopCap = 100;
       let lastFrame = 0;
       let gameOver = false;
       let victory = false;
 
       function clamp(value, min, max) {
         return Math.min(Math.max(value, min), max);
+      }
+
+      function colorWithAlpha(color, alpha) {
+        const red = parseInt(color.slice(1, 3), 16);
+        const green = parseInt(color.slice(3, 5), 16);
+        const blue = parseInt(color.slice(5, 7), 16);
+        return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
       }
 
       function getDistance(a, b) {
@@ -533,6 +600,33 @@
 
       function limitRoadConnections(roads, territories, maximum) {
         const ids = territories.map((territory) => territory.id);
+        const orientation = (a, b, c) => (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+        const onSegment = (a, b, point) => Math.abs(orientation(a, b, point)) < 0.001
+          && point.x >= Math.min(a.x, b.x) - 0.001
+          && point.x <= Math.max(a.x, b.x) + 0.001
+          && point.y >= Math.min(a.y, b.y) - 0.001
+          && point.y <= Math.max(a.y, b.y) + 0.001;
+        const roadsOverlap = (left, right) => {
+          const leftStart = territories.find((territory) => territory.id === left[0]);
+          const leftEnd = territories.find((territory) => territory.id === left[1]);
+          const rightStart = territories.find((territory) => territory.id === right[0]);
+          const rightEnd = territories.find((territory) => territory.id === right[1]);
+          if (!leftStart || !leftEnd || !rightStart || !rightEnd) return false;
+          if (new Set([...left, ...right]).size < 4) return false;
+          const first = orientation(leftStart, leftEnd, rightStart);
+          const second = orientation(leftStart, leftEnd, rightEnd);
+          const third = orientation(rightStart, rightEnd, leftStart);
+          const fourth = orientation(rightStart, rightEnd, leftEnd);
+          return (first * second < 0 && third * fourth < 0)
+            || onSegment(leftStart, leftEnd, rightStart)
+            || onSegment(leftStart, leftEnd, rightEnd)
+            || onSegment(rightStart, rightEnd, leftStart)
+            || onSegment(rightStart, rightEnd, leftEnd);
+        };
+        const nonOverlapping = roads.filter((road) => {
+          const overlaps = roads.slice(0, roads.indexOf(road)).some((existing) => roadsOverlap(existing, road));
+          return !overlaps;
+        });
         const isConnected = (candidateRoads) => {
           const graph = new Map(ids.map((id) => [id, []]));
           for (const [a, b] of candidateRoads) {
@@ -552,7 +646,7 @@
           return visited.size === ids.length;
         };
 
-        const limited = [...roads];
+        const limited = nonOverlapping;
         const degree = new Map(ids.map((id) => [id, 0]));
         for (const [a, b] of limited) {
           degree.set(a, degree.get(a) + 1);
@@ -584,6 +678,89 @@
         return limited;
       }
 
+      function selectRoadNetwork(roads, territories, minimumSpacing) {
+        const territoryById = new Map(territories.map((territory) => [territory.id, territory]));
+        const orientation = (a, b, c) => (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+        const onSegment = (a, b, point) => Math.abs(orientation(a, b, point)) < 0.001
+          && point.x >= Math.min(a.x, b.x) - 0.001
+          && point.x <= Math.max(a.x, b.x) + 0.001
+          && point.y >= Math.min(a.y, b.y) - 0.001
+          && point.y <= Math.max(a.y, b.y) + 0.001;
+        const distanceBetweenSegments = (firstStart, firstEnd, secondStart, secondEnd) => {
+          const intersects = (a, b, c, d) => {
+            const first = orientation(a, b, c);
+            const second = orientation(a, b, d);
+            const third = orientation(c, d, a);
+            const fourth = orientation(c, d, b);
+            return (first * second < 0 && third * fourth < 0)
+              || onSegment(a, b, c) || onSegment(a, b, d)
+              || onSegment(c, d, a) || onSegment(c, d, b);
+          };
+          const pointToSegment = (point, start, end) => {
+            const dx = end.x - start.x;
+            const dy = end.y - start.y;
+            const lengthSquared = dx * dx + dy * dy || 1;
+            const progress = clamp(((point.x - start.x) * dx + (point.y - start.y) * dy) / lengthSquared, 0, 1);
+            return Math.hypot(point.x - (start.x + dx * progress), point.y - (start.y + dy * progress));
+          };
+          if (intersects(firstStart, firstEnd, secondStart, secondEnd)) return 0;
+          return Math.min(
+            pointToSegment(firstStart, secondStart, secondEnd),
+            pointToSegment(firstEnd, secondStart, secondEnd),
+            pointToSegment(secondStart, firstStart, firstEnd),
+            pointToSegment(secondEnd, firstStart, firstEnd)
+          );
+        };
+        const sharesEndpoint = (left, right) => left[0] === right[0]
+          || left[0] === right[1]
+          || left[1] === right[0]
+          || left[1] === right[1];
+        const roadLength = ([startId, endId]) => {
+          const start = territoryById.get(startId);
+          const end = territoryById.get(endId);
+          return start && end ? Math.hypot(start.x - end.x, start.y - end.y) : Infinity;
+        };
+        const roadHasSpace = (candidate, selected) => selected.every((existing) => {
+          if (sharesEndpoint(candidate, existing)) return true;
+          const candidateStart = territoryById.get(candidate[0]);
+          const candidateEnd = territoryById.get(candidate[1]);
+          const existingStart = territoryById.get(existing[0]);
+          const existingEnd = territoryById.get(existing[1]);
+          return distanceBetweenSegments(candidateStart, candidateEnd, existingStart, existingEnd) >= minimumSpacing;
+        });
+        const roadHasNoCrossing = (candidate, selected) => selected.every((existing) => {
+          if (sharesEndpoint(candidate, existing)) return true;
+          const candidateStart = territoryById.get(candidate[0]);
+          const candidateEnd = territoryById.get(candidate[1]);
+          const existingStart = territoryById.get(existing[0]);
+          const existingEnd = territoryById.get(existing[1]);
+          return distanceBetweenSegments(candidateStart, candidateEnd, existingStart, existingEnd) > 0.001;
+        });
+        const candidates = roads.slice().sort((left, right) => roadLength(left) - roadLength(right));
+        const selected = [];
+        const connected = new Set(['iron-crown']);
+
+        while (connected.size < territories.length) {
+          const possible = candidates.filter((road) => {
+            const touchesConnected = connected.has(road[0]) !== connected.has(road[1]);
+            return touchesConnected && roadHasSpace(road, selected);
+          });
+          const fallback = candidates.filter((road) => {
+            return connected.has(road[0]) !== connected.has(road[1]) && roadHasNoCrossing(road, selected);
+          });
+          const chosen = (possible.length > 0 ? possible : fallback).sort((left, right) => roadLength(left) - roadLength(right))[0];
+          if (!chosen) break;
+          selected.push(chosen);
+          connected.add(chosen[0]);
+          connected.add(chosen[1]);
+        }
+
+        for (const candidate of candidates) {
+          if (!selected.includes(candidate) && roadHasSpace(candidate, selected)) selected.push(candidate);
+        }
+        return selected;
+      }
+
       function findPath(startId, endId) {
         if (startId === endId) return [startId];
         const graph = new Map();
@@ -608,19 +785,24 @@
         return [startId];
       }
 
+      function getEnemyTerritoryCount(faction) {
+        return world.territories.filter((territory) => territory.owner === faction).length;
+      }
+
       function getNearestEnemyTerritory(unit) {
         let best = null;
         let bestDist = Infinity;
-        const factionTerritoryCount = unit.team === 'enemy'
-          ? world.territories.filter((territory) => territory.owner === unit.faction).length
-          : Infinity;
+        const factionTerritoryCount = unit.team === 'enemy' ? getEnemyTerritoryCount(unit.faction) : Infinity;
         for (const territory of world.territories) {
           if (unit.team === 'player' && territory.owner === 'player') continue;
           if (unit.team === 'enemy' && territory.owner === unit.faction) continue;
           if (unit.team === 'enemy' && factionTerritoryCount < 5 && territory.owner !== 'neutral') continue;
-          if (unit.team === 'enemy' && factionTerritoryCount >= 5 && territory.owner === 'neutral') continue;
           const dist = getDistance(unit, territory);
-          const rivalBonus = unit.team === 'enemy' && territory.owner !== 'player' ? 0.65 : 1;
+          const rivalBonus = unit.team === 'enemy'
+            ? factionTerritoryCount < 5
+              ? territory.owner === 'neutral' ? 0.35 : Infinity
+              : territory.owner.startsWith('enemy-') ? 0.45 : territory.owner === 'player' ? 0.70 : 1
+            : 1;
           const kingdomSize = territory.owner === 'neutral'
             ? 0
             : world.territories.filter((candidate) => candidate.owner === territory.owner).length;
@@ -635,13 +817,15 @@
       }
 
       function getAiOrderTarget(unit) {
-        const factionTerritoryCount = world.territories.filter((territory) => territory.owner === unit.faction).length;
+        const factionTerritoryCount = getEnemyTerritoryCount(unit.faction);
         const currentOrder = aiOrders.get(unit.faction);
         const orderedTerritory = currentOrder ? territoryLookup.get(currentOrder) : null;
-        const validSmallKingdomTarget = factionTerritoryCount < 5
-          ? orderedTerritory?.owner === 'neutral'
-          : orderedTerritory?.owner !== 'neutral';
-        if (orderedTerritory && orderedTerritory.owner !== unit.faction && validSmallKingdomTarget) return orderedTerritory;
+        const validTarget = orderedTerritory
+          && orderedTerritory.owner !== unit.faction
+          && (factionTerritoryCount < 5
+            ? orderedTerritory.owner === 'neutral'
+            : (orderedTerritory.owner === 'neutral' || orderedTerritory.owner === 'player' || isEnemyOwner(orderedTerritory.owner)));
+        if (validTarget) return orderedTerritory;
         const target = getNearestEnemyTerritory(unit);
         if (target) aiOrders.set(unit.faction, target.id);
         return target;
@@ -668,8 +852,11 @@
           Controlled territories: ${controlled}/${world.territories.length}<br>
           Enemy territories: ${enemyControlled} across ${enemyKingdoms.size} enemy kingdoms<br>
           Neutral zones: ${neutral}<br>
+          Each kingdom can field up to ${troopCap} troops.<br>
+          Troops currently recruit at: ${territoryLookup.get(playerKingdom.recruitmentTerritoryId)?.name || 'Iron Crown'}<br>
+          Right-click an owned territory to move recruitment there for 100 gold.<br>
           Groups contain up to 10 troops. Castles take longer to capture but generate more gold.<br>
-          Number keys: 1 = all troops, 2 = half, 3 = one third, and so on.<br>
+          Drag across your troops to select them, then click a territory to send them there.<br>
           ${wallMode ? 'Wall mode: click a road to place a wall.' : 'Build walls to block enemy roads.'}<br>
           ${actionMessage ? `${actionMessage}<br>` : ''}
           ${playerOrder ? `Army ordered to: ${territoryLookup.get(playerOrder)?.name || 'destination'}` : 'Click a territory to order your army.'}
@@ -718,7 +905,20 @@
         return Boolean(unit.team === 'enemy' && getWallBlockingUnit(unit, from, to));
       }
 
+      function getKingdomForUnit(team, territoryId) {
+        if (team === 'player') return 'player';
+        return territoryLookup.get(territoryId)?.owner || territoryId;
+      }
+
+      function canCreateUnit(team, territoryId) {
+        const kingdom = getKingdomForUnit(team, territoryId);
+        const livingTroops = allUnits.filter((unit) => unit.hp > 0
+          && (unit.team === 'player' ? 'player' : unit.faction) === kingdom).length;
+        return livingTroops < troopCap;
+      }
+
       function createUnit(type, team, x, y, territoryId) {
+        if (!canCreateUnit(team, territoryId)) return null;
         const unitTypes = {
           peasant: { hp: 28, speed: 52, damage: 8, range: 18, cooldown: 0.8, color: team === 'player' ? '#79d4ff' : '#ff9a9a', radius: 8 },
           archer: { hp: 36, speed: 46, damage: 12, range: 120, cooldown: 1.0, color: team === 'player' ? '#9be7ff' : '#ffc0a8', radius: 9 },
@@ -726,7 +926,7 @@
         };
 
         const template = unitTypes[type];
-        const enemyScale = team === 'enemy' ? 0.82 : 1;
+        const enemyScale = 1;
         const unit = {
           id: Math.random().toString(16).slice(2),
           type,
@@ -741,7 +941,7 @@
           damage: template.damage * enemyScale,
           range: template.range,
           cooldown: 0,
-          attackSpeed: template.cooldown * (team === 'enemy' ? 1.18 : 1),
+          attackSpeed: template.cooldown,
           color: team === 'enemy' ? getEnemyColor(territoryId) : template.color,
           path: [],
           currentTerritoryId: territoryId || playerKingdom.homeId,
@@ -791,6 +991,17 @@
           updateHud();
           return;
         }
+
+        const recruitmentTerritory = territoryLookup.get(playerKingdom.recruitmentTerritoryId);
+        if (!recruitmentTerritory || recruitmentTerritory.owner !== 'player') {
+          playerKingdom.recruitmentTerritoryId = playerKingdom.homeId;
+        }
+        const spawnTerritory = territoryLookup.get(playerKingdom.recruitmentTerritoryId);
+        if (!canCreateUnit('player', spawnTerritory.id)) {
+          actionMessage = `Your kingdom has reached its ${troopCap}-troop cap.`;
+          updateHud();
+          return;
+        }
         const costs = {
           peasant: { gold: 12, wood: 5, food: 6 },
           archer: { gold: 20, wood: 9, food: 8 },
@@ -811,9 +1022,8 @@
         playerKingdom.wood -= cost.wood;
         playerKingdom.food -= cost.food;
 
-        const home = territoryLookup.get(playerKingdom.homeId);
-        const unit = createUnit(type, 'player', home.x + 16 + Math.random() * 10, home.y + 18 + Math.random() * 10, home.id);
-        if (!playerOrder) unit.path = [home.id];
+        const unit = createUnit(type, 'player', spawnTerritory.x + 16 + Math.random() * 10, spawnTerritory.y + 18 + Math.random() * 10, spawnTerritory.id);
+        if (!playerOrder) unit.path = [spawnTerritory.id];
         actionMessage = `${type[0].toUpperCase() + type.slice(1)} joined the army.`;
         updateHud();
       }
@@ -956,6 +1166,10 @@
           const roll = Math.random();
           const type = roll < 0.58 ? 'peasant' : roll < 0.85 ? 'archer' : 'knight';
           const unit = createUnit(type, 'enemy', territory.x + (Math.random() - 0.5) * 18, territory.y + (Math.random() - 0.5) * 18, territory.id);
+          if (!unit) {
+            territory.spawnTimer = 2 + Math.random() * 3;
+            continue;
+          }
           unit.faction = territory.owner;
           unit.color = getEnemyColor(unit.faction);
           unit.path = [territory.id];
@@ -1000,6 +1214,7 @@
         for (const candidate of allUnits) {
           const sameSide = candidate.team === unit.team && (unit.team !== 'enemy' || candidate.faction === unit.faction);
           if (sameSide) continue;
+          if (unit.team === 'enemy' && getEnemyTerritoryCount(unit.faction) < 5) continue;
           const dist = getDistance(unit, candidate);
           if (dist < bestDist) {
             bestDist = dist;
@@ -1051,6 +1266,7 @@
             const dist = Math.hypot(dx, dy) || 0.001;
             const minDist = a.radius + b.radius + 4;
             if (dist < minDist) {
+              if (dist <= Math.max(a.range, b.range) + 2) continue;
               const nx = dx / dist;
               const ny = dy / dist;
               const overlap = (minDist - dist) / 2;
@@ -1071,7 +1287,7 @@
           const nearestEnemy = getNearestEnemyUnit(unit);
           const currentTerritory = findTerritoryAt(unit.x, unit.y);
 
-          if (nearestEnemy && getDistance(unit, nearestEnemy) <= unit.range) {
+          if (nearestEnemy && getDistance(unit, nearestEnemy) <= unit.range + 2) {
             const dx = nearestEnemy.x - unit.x;
             const dy = nearestEnemy.y - unit.y;
             const dist = Math.hypot(dx, dy) || 1;
@@ -1127,9 +1343,11 @@
 
       function handleCanvasClick(event) {
         if (gameOver) return;
-        const rect = canvas.getBoundingClientRect();
-        const x = (event.clientX - rect.left) * (canvas.width / rect.width);
-        const y = (event.clientY - rect.top) * (canvas.height / rect.height);
+        if (suppressNextCanvasClick) {
+          suppressNextCanvasClick = false;
+          return;
+        }
+        const { x, y } = getCanvasPoint(event);
 
         if (wallMode) {
           const placement = getRoadPlacement(x, y);
@@ -1150,11 +1368,9 @@
 
         playerOrder = clicked.id;
 
-        const playerUnits = allUnits.filter((unit) => unit.team === 'player');
-        const commandedCount = Math.max(1, Math.ceil(playerUnits.length / commandDivisor));
-        const commandUnits = event.shiftKey
-          ? playerUnits.filter((unit) => Number(unit.id.slice(-2), 16) % 2 === 0).slice(0, commandedCount)
-          : playerUnits.slice(0, commandedCount);
+        const playerUnits = allUnits.filter((unit) => unit.team === 'player' && unit.hp > 0);
+        const selectedUnits = allUnits.filter((unit) => troopSelection.has(unit.id) && unit.team === 'player' && unit.hp > 0);
+        const commandUnits = selectedUnits.length > 0 ? selectedUnits : playerUnits;
         for (const unit of commandUnits) {
           if (unit.team !== 'player') continue;
           const origin = findTerritoryAt(unit.x, unit.y)
@@ -1164,33 +1380,115 @@
           unit.target = clicked.id;
         }
         assignUnitsToGroups(commandUnits);
-
+        troopSelection.clear();
+        actionMessage = `${commandUnits.length} troop${commandUnits.length === 1 ? '' : 's'} ordered to ${clicked.name}.`;
         updateHud();
       }
 
+      function getCanvasPoint(event) {
+        const rect = canvas.getBoundingClientRect();
+        return {
+          x: (event.clientX - rect.left) * (canvas.width / rect.width),
+          y: (event.clientY - rect.top) * (canvas.height / rect.height)
+        };
+      }
+
+      function selectUnitsInBox() {
+        troopSelection.clear();
+        const left = Math.min(selectionBox.startX, selectionBox.endX);
+        const right = Math.max(selectionBox.startX, selectionBox.endX);
+        const top = Math.min(selectionBox.startY, selectionBox.endY);
+        const bottom = Math.max(selectionBox.startY, selectionBox.endY);
+        for (const unit of allUnits) {
+          if (unit.team === 'player' && unit.hp > 0 && unit.x >= left && unit.x <= right && unit.y >= top && unit.y <= bottom) {
+            troopSelection.add(unit.id);
+          }
+        }
+        actionMessage = troopSelection.size > 0
+          ? `${troopSelection.size} troop${troopSelection.size === 1 ? '' : 's'} selected. Click a territory to send them.`
+          : 'No troops were inside the selection.';
+        updateHud();
+      }
+
+      canvas.addEventListener('pointerdown', (event) => {
+        if (gameOver || wallMode) return;
+        const point = getCanvasPoint(event);
+        selectionBox = { startX: point.x, startY: point.y, endX: point.x, endY: point.y, moved: false };
+        canvas.setPointerCapture(event.pointerId);
+      });
+
+      canvas.addEventListener('pointermove', (event) => {
+        if (!selectionBox) return;
+        const point = getCanvasPoint(event);
+        selectionBox.endX = point.x;
+        selectionBox.endY = point.y;
+        selectionBox.moved = Math.hypot(selectionBox.endX - selectionBox.startX, selectionBox.endY - selectionBox.startY) > 8;
+      });
+
+      canvas.addEventListener('pointerup', (event) => {
+        if (!selectionBox) return;
+        if (selectionBox.moved) {
+          selectUnitsInBox();
+          suppressNextCanvasClick = true;
+        }
+        selectionBox = null;
+        if (canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId);
+      });
+
       canvas.addEventListener('click', handleCanvasClick);
 
-      window.addEventListener('keydown', (event) => {
-        if (event.key >= '1' && event.key <= '9') {
-          commandDivisor = Number(event.key);
-          actionMessage = commandDivisor === 1
-            ? 'Next order will send your whole army.'
-            : `Next order will send 1/${commandDivisor} of your army.`;
+      canvas.addEventListener('contextmenu', (event) => {
+        event.preventDefault();
+        if (gameOver) return;
+        const { x, y } = getCanvasPoint(event);
+        const territory = findTerritoryAt(x, y);
+        if (!territory || territory.owner !== 'player') {
+          actionMessage = 'You can only recruit from a territory you own.';
           updateHud();
+          return;
         }
+        if (territory.id === playerKingdom.recruitmentTerritoryId) {
+          actionMessage = `${territory.name} is already your recruitment point.`;
+          updateHud();
+          return;
+        }
+        if (playerKingdom.gold < 100) {
+          actionMessage = 'Need 100 gold to change the recruitment point.';
+          updateHud();
+          return;
+        }
+        playerKingdom.gold -= 100;
+        playerKingdom.recruitmentTerritoryId = territory.id;
+        actionMessage = `Recruitment point moved to ${territory.name} for 100 gold.`;
+        updateHud();
       });
 
       function drawRoads() {
-        ctx.lineWidth = 6;
-        ctx.strokeStyle = 'rgba(255,255,255,0.28)';
-        for (const [a, b] of world.roads) {
+        ctx.lineWidth = 3;
+        ctx.strokeStyle = 'rgba(176, 132, 91, 0.9)';
+        world.roads.forEach(([a, b], roadIndex) => {
           const ta = territoryLookup.get(a);
           const tb = territoryLookup.get(b);
-          if (!ta || !tb) continue;
+          if (!ta || !tb) return;
+          const dx = tb.x - ta.x;
+          const dy = tb.y - ta.y;
+          const length = Math.hypot(dx, dy) || 1;
+          const wave = ((roadIndex * 17) % 13) - 6;
+          const controlX = (ta.x + tb.x) / 2 - (dy / length) * wave;
+          const controlY = (ta.y + tb.y) / 2 + (dx / length) * wave;
           ctx.beginPath();
           ctx.moveTo(ta.x, ta.y);
-          ctx.lineTo(tb.x, tb.y);
+          ctx.quadraticCurveTo(controlX, controlY, tb.x, tb.y);
           ctx.stroke();
+        });
+      }
+
+      function drawTerritoryNames() {
+        ctx.fillStyle = '#eefaff';
+        ctx.font = '11px Arial';
+        ctx.textAlign = 'center';
+        for (const territory of world.territories) {
+          ctx.fillText(territory.name, territory.x, territory.y + 4);
         }
       }
 
@@ -1241,33 +1539,43 @@
         ctx.fillText('ARMY ORDER', destination.x, destination.y + destination.radius + 24);
       }
 
+      function drawSelectionBox() {
+        if (!selectionBox || !selectionBox.moved) return;
+        const left = Math.min(selectionBox.startX, selectionBox.endX);
+        const top = Math.min(selectionBox.startY, selectionBox.endY);
+        const width = Math.abs(selectionBox.endX - selectionBox.startX);
+        const height = Math.abs(selectionBox.endY - selectionBox.startY);
+        ctx.fillStyle = 'rgba(124, 210, 255, 0.16)';
+        ctx.fillRect(left, top, width, height);
+        ctx.strokeStyle = '#7cd2ff';
+        ctx.lineWidth = 1.5;
+        ctx.strokeRect(left, top, width, height);
+      }
+
       function drawTerritory(territory) {
         ctx.beginPath();
         ctx.moveTo(territory.points[0].x, territory.points[0].y);
         for (let i = 1; i < territory.points.length; i++) ctx.lineTo(territory.points[i].x, territory.points[i].y);
         ctx.closePath();
-        ctx.fillStyle = territory.color;
+        ctx.fillStyle = territory.owner === 'neutral'
+          ? 'rgba(91, 137, 75, 0.58)'
+          : colorWithAlpha(territory.color, 0.82);
         ctx.fill();
         ctx.lineWidth = 1.5;
         ctx.strokeStyle = 'rgba(255,255,255,0.35)';
         ctx.stroke();
 
-        ctx.fillStyle = '#eefaff';
-        ctx.font = '11px Arial';
-        ctx.textAlign = 'center';
-        ctx.fillText(territory.name, territory.x, territory.y + 4);
-
         if (territory.castle) {
           ctx.fillStyle = '#f5d58a';
-          ctx.fillRect(territory.x - 9, territory.y - 19, 18, 14);
+          ctx.fillRect(territory.x - 11, territory.y - 23, 22, 17);
           ctx.fillStyle = '#fff1b8';
-          ctx.fillRect(territory.x - 13, territory.y - 23, 6, 18);
-          ctx.fillRect(territory.x + 7, territory.y - 23, 6, 18);
+          ctx.fillRect(territory.x - 16, territory.y - 28, 7, 22);
+          ctx.fillRect(territory.x + 9, territory.y - 28, 7, 22);
           ctx.fillStyle = '#7b4b36';
-          ctx.fillRect(territory.x - 3, territory.y - 12, 6, 7);
+          ctx.fillRect(territory.x - 4, territory.y - 14, 8, 8);
           ctx.strokeStyle = '#fff0a6';
           ctx.lineWidth = 1;
-          ctx.strokeRect(territory.x - 15, territory.y - 25, 30, 22);
+          ctx.strokeRect(territory.x - 19, territory.y - 31, 38, 27);
         }
 
         if (territory.capture !== 0) {
@@ -1278,8 +1586,15 @@
         }
       }
 
-      function drawUnit(unit, stackCount = 1) {
+      function drawUnit(unit, stackCount = 1, selected = false) {
         ctx.beginPath();
+        if (selected) {
+          ctx.strokeStyle = '#fff2a8';
+          ctx.lineWidth = 3;
+          ctx.arc(unit.x, unit.y, unit.radius + 5, 0, Math.PI * 2);
+          ctx.stroke();
+          ctx.beginPath();
+        }
         ctx.fillStyle = unit.color;
         ctx.arc(unit.x, unit.y, unit.radius, 0, Math.PI * 2);
         ctx.fill();
@@ -1333,7 +1648,8 @@
               hp: totalHp,
               maxHp: totalMaxHp
             },
-            count: members.length
+            count: members.length,
+            selected: members.some((member) => troopSelection.has(member.id))
           });
         }
 
@@ -1343,23 +1659,42 @@
       function drawBackground() {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
-        gradient.addColorStop(0, '#1c3a4d');
-        gradient.addColorStop(1, '#112433');
+        gradient.addColorStop(0, '#527f4c');
+        gradient.addColorStop(0.5, '#38653d');
+        gradient.addColorStop(1, '#234a32');
         ctx.fillStyle = gradient;
         ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-        ctx.strokeStyle = 'rgba(255,255,255,0.045)';
-        for (let x = 0; x < canvas.width; x += 40) {
+        ctx.strokeStyle = 'rgba(184, 220, 128, 0.12)';
+        ctx.lineWidth = 1;
+        for (let x = 0; x < canvas.width; x += 46) {
           ctx.beginPath();
           ctx.moveTo(x, 0);
           ctx.lineTo(x, canvas.height);
           ctx.stroke();
         }
-        for (let y = 0; y < canvas.height; y += 40) {
+        for (let y = 0; y < canvas.height; y += 46) {
           ctx.beginPath();
           ctx.moveTo(0, y);
           ctx.lineTo(canvas.width, y);
           ctx.stroke();
+        }
+
+        ctx.strokeStyle = 'rgba(183, 221, 116, 0.28)';
+        ctx.lineWidth = 1.2;
+        for (let y = 14; y < canvas.height; y += 31) {
+          for (let x = 12; x < canvas.width; x += 37) {
+            const variation = Math.sin(x * 12.9898 + y * 78.233) * 43758.5453;
+            const offset = variation - Math.floor(variation);
+            const grassX = x + offset * 18;
+            const grassY = y + (offset - 0.5) * 14;
+            ctx.beginPath();
+            ctx.moveTo(grassX, grassY + 4);
+            ctx.lineTo(grassX - 2, grassY - 3);
+            ctx.moveTo(grassX, grassY + 4);
+            ctx.lineTo(grassX + 3, grassY - 2);
+            ctx.stroke();
+          }
         }
       }
 
@@ -1377,11 +1712,13 @@
 
       function render() {
         drawBackground();
+        for (const territory of world.territories) drawTerritory(territory);
         drawRoads();
+        drawTerritoryNames();
         drawWalls();
         drawPlayerOrder();
-        for (const territory of world.territories) drawTerritory(territory);
-        for (const stack of getUnitStacks()) drawUnit(stack.unit, stack.count);
+        for (const stack of getUnitStacks()) drawUnit(stack.unit, stack.count, stack.selected);
+        drawSelectionBox();
         drawVictoryText();
       }
 
@@ -1434,6 +1771,7 @@
             const roll = Math.random();
             const type = roll < 0.55 ? 'peasant' : roll < 0.85 ? 'archer' : 'knight';
             const patrol = createUnit(type, 'enemy', territory.x + (Math.random() - 0.5) * 12, territory.y + (Math.random() - 0.5) * 12, territory.id);
+            if (!patrol) continue;
             patrol.faction = territory.owner;
             patrol.color = getEnemyColor(patrol.faction);
             const target = getAiOrderTarget(patrol);
