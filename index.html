@@ -36,7 +36,53 @@
         border: 2px solid var(--panel-border);
         border-radius: 16px;
         box-shadow: 0 18px 60px rgba(0, 0, 0, 0.45);
-        overflow: hidden;
+        overflow: visible;
+        position: relative;
+      }
+
+      .setup-screen {
+        position: absolute;
+        inset: 0;
+        z-index: 10;
+        display: grid;
+        place-items: center;
+        padding: 24px;
+        background: rgba(7, 20, 29, 0.94);
+        border-radius: 14px;
+      }
+
+      .setup-screen[hidden] {
+        display: none;
+      }
+
+      .setup-panel {
+        width: min(360px, 100%);
+        padding: 28px;
+        text-align: center;
+        background: rgba(17, 31, 49, 0.98);
+        border: 1px solid var(--panel-border);
+        border-radius: 12px;
+      }
+
+      .setup-panel h2 {
+        margin: 0 0 10px;
+        color: var(--gold);
+      }
+
+      .setup-panel p {
+        margin: 0 0 20px;
+        color: #b8d2df;
+      }
+
+      .setup-panel select {
+        width: 100%;
+        margin-bottom: 12px;
+        padding: 10px;
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        border-radius: 8px;
+        background: #0d1728;
+        color: #eaf6ff;
+        font: inherit;
       }
 
       .top-bar {
@@ -102,15 +148,39 @@
         background: linear-gradient(180deg, #39b978, #247b58);
       }
 
+      .game-control {
+        width: auto;
+        white-space: nowrap;
+      }
+
+      button:disabled {
+        cursor: not-allowed;
+        opacity: 0.5;
+        transform: none;
+      }
+
       .panel {
         display: grid;
         grid-template-columns: 240px 1fr;
+        position: relative;
       }
 
       .sidebar {
         background: rgba(14, 21, 31, 0.9);
         border-right: 1px solid rgba(255, 255, 255, 0.1);
         padding: 18px 14px;
+      }
+
+      .right-sidebar {
+        background: rgba(14, 21, 31, 0.9);
+        border: 2px solid var(--panel-border);
+        border-radius: 12px;
+        padding: 18px 14px;
+        position: absolute;
+        left: calc(100% + 14px);
+        top: 0;
+        width: 240px;
+        z-index: 3;
       }
 
       .card {
@@ -182,10 +252,45 @@
         cursor: crosshair;
         touch-action: none;
       }
+
+      @media (max-width: 900px) {
+        .panel {
+          grid-template-columns: 1fr;
+        }
+
+        .sidebar,
+        .right-sidebar {
+          border: none;
+        }
+
+        .right-sidebar {
+          position: static;
+          width: auto;
+          border: none;
+          border-top: 1px solid rgba(255, 255, 255, 0.1);
+          border-radius: 0;
+        }
+      }
     </style>
   </head>
   <body>
     <div class="game-shell">
+      <div class="setup-screen" id="setupScreen">
+        <div class="setup-panel">
+          <h2>Choose the Realm</h2>
+          <p>Decide how many kingdoms will compete for the map.</p>
+          <select id="kingdomCount" aria-label="Number of kingdoms">
+            <option value="2">2 kingdoms</option>
+            <option value="3">3 kingdoms</option>
+            <option value="4">4 kingdoms</option>
+            <option value="5" selected>5 kingdoms</option>
+            <option value="6">6 kingdoms</option>
+            <option value="7">7 kingdoms</option>
+            <option value="8">8 kingdoms</option>
+          </select>
+          <button type="button" id="startGame">Start Game</button>
+        </div>
+      </div>
       <div class="top-bar">
         <div class="title">
           <h1>Kingdom Command</h1>
@@ -195,6 +300,8 @@
           <div class="resource-pill"><span class="dot" style="background: var(--gold);"></span> Gold <strong id="goldValue">0</strong><span class="resource-rate" id="goldRate">+0.00/s</span></div>
           <div class="resource-pill"><span class="dot" style="background: var(--wood);"></span> Wood <strong id="woodValue">0</strong><span class="resource-rate" id="woodRate">+0.00/s</span></div>
           <div class="resource-pill"><span class="dot" style="background: var(--food);"></span> Food <strong id="foodValue">0</strong><span class="resource-rate" id="foodRate">+0.00/s</span></div>
+          <button type="button" class="game-control" id="watchModeButton">Watch Mode</button>
+          <button type="button" class="game-control" id="speedButton">1x Speed</button>
           <button type="button" class="play-again" id="playAgain">Play Again</button>
         </div>
       </div>
@@ -223,7 +330,11 @@
             <h2>Kingdom</h2>
             <div class="status-box" id="kingdomStatus"></div>
           </div>
+        </aside>
 
+        <canvas id="gameCanvas" width="860" height="620"></canvas>
+
+        <aside class="right-sidebar">
           <div class="card">
             <h2>Economy</h2>
             <div class="button-grid">
@@ -262,8 +373,6 @@
             <div class="button-meta"><span>Cost: 10 wood</span><span>Blocks enemies</span></div>
           </div>
         </aside>
-
-        <canvas id="gameCanvas" width="860" height="620"></canvas>
       </div>
     </div>
 
@@ -279,6 +388,8 @@
       const foodRate = document.getElementById('foodRate');
       const kingdomStatus = document.getElementById('kingdomStatus');
       const playAgain = document.getElementById('playAgain');
+      const watchModeButton = document.getElementById('watchModeButton');
+      const speedButton = document.getElementById('speedButton');
 
       function hashString(str) {
         let h = 0;
@@ -357,7 +468,171 @@
         }
       }
 
-      function buildWorld() {
+      function buildTouchingTerritoryRoads(territories) {
+        const cross = (first, second) => first.x * second.y - first.y * second.x;
+        const segmentOverlap = (firstStart, firstEnd, secondStart, secondEnd) => {
+          const firstVector = { x: firstEnd.x - firstStart.x, y: firstEnd.y - firstStart.y };
+          const secondVector = { x: secondStart.x - firstStart.x, y: secondStart.y - firstStart.y };
+          const thirdVector = { x: secondEnd.x - firstStart.x, y: secondEnd.y - firstStart.y };
+          if (Math.abs(cross(firstVector, secondVector)) > 0.01 || Math.abs(cross(firstVector, thirdVector)) > 0.01) return 0;
+          const length = Math.hypot(firstVector.x, firstVector.y);
+          if (length < 0.01) return 0;
+          const direction = { x: firstVector.x / length, y: firstVector.y / length };
+          const project = (point) => (point.x - firstStart.x) * direction.x + (point.y - firstStart.y) * direction.y;
+          return Math.max(0, Math.min(length, Math.max(project(secondStart), project(secondEnd)))
+            - Math.max(0, Math.min(project(secondStart), project(secondEnd))));
+        };
+        const roads = [];
+
+        for (let firstIndex = 0; firstIndex < territories.length; firstIndex++) {
+          const firstTerritory = territories[firstIndex];
+          for (let secondIndex = firstIndex + 1; secondIndex < territories.length; secondIndex++) {
+            const secondTerritory = territories[secondIndex];
+            const touches = firstTerritory.points.some((firstPoint, pointIndex) => {
+              const firstNext = firstTerritory.points[(pointIndex + 1) % firstTerritory.points.length];
+              return secondTerritory.points.some((secondPoint, secondPointIndex) => {
+                const secondNext = secondTerritory.points[(secondPointIndex + 1) % secondTerritory.points.length];
+                return segmentOverlap(firstPoint, firstNext, secondPoint, secondNext) > 0.5;
+              });
+            });
+            if (touches) roads.push([firstTerritory.id, secondTerritory.id]);
+          }
+        }
+        return roads;
+      }
+
+      function keepRandomConnectedRoads(roads, territoryCount) {
+        if (roads.length === 0) return [];
+        const shuffled = roads.slice();
+        for (let index = shuffled.length - 1; index > 0; index--) {
+          const swapIndex = Math.floor(Math.random() * (index + 1));
+          [shuffled[index], shuffled[swapIndex]] = [shuffled[swapIndex], shuffled[index]];
+        }
+
+        const parent = new Map();
+        const find = (territoryId) => {
+          if (!parent.has(territoryId)) parent.set(territoryId, territoryId);
+          let root = territoryId;
+          while (parent.get(root) !== root) root = parent.get(root);
+          while (territoryId !== root) {
+            const next = parent.get(territoryId);
+            parent.set(territoryId, root);
+            territoryId = next;
+          }
+          return root;
+        };
+        const join = (firstId, secondId) => {
+          const firstRoot = find(firstId);
+          const secondRoot = find(secondId);
+          if (firstRoot === secondRoot) return false;
+          parent.set(firstRoot, secondRoot);
+          return true;
+        };
+        const connectedRoads = [];
+        const extraRoads = [];
+        for (const road of shuffled) {
+          if (join(road[0], road[1])) connectedRoads.push(road);
+          else extraRoads.push(road);
+        }
+
+        const targetCount = Math.max(territoryCount - 1, Math.ceil(roads.length / 2));
+        for (let index = 0; connectedRoads.length < targetCount && index < extraRoads.length; index++) {
+          connectedRoads.push(extraRoads[index]);
+        }
+        return connectedRoads;
+      }
+
+      function assignConnectedEnemyTerritories(territories, roads, enemyOwners, enemyCounts) {
+        const territoryById = new Map(territories.map((territory) => [territory.id, territory]));
+        const graph = new Map(territories.map((territory) => [territory.id, []]));
+        for (const [startId, endId] of roads) {
+          graph.get(startId).push(endId);
+          graph.get(endId).push(startId);
+        }
+        const available = new Set(territories.filter((territory) => territory.owner !== 'player').map((territory) => territory.id));
+        const ownersBySize = enemyOwners.slice().sort((left, right) => (enemyCounts.get(right) || 0) - (enemyCounts.get(left) || 0));
+        let seeds = new Map();
+
+        for (let attempt = 0; attempt < 100 && seeds.size < ownersBySize.length; attempt++) {
+          const remaining = new Set(available);
+          const candidateSeeds = new Map();
+          let failed = false;
+          const touchesOtherKingdom = (territoryId, ownIds, assignedIds) => (graph.get(territoryId) || []).some((neighborId) => {
+            return assignedIds.has(neighborId) && !ownIds.has(neighborId);
+          });
+
+          for (const owner of ownersBySize) {
+            const count = enemyCounts.get(owner) || 0;
+            if (count === 0) continue;
+            const possibleSeeds = [...remaining].filter((territoryId) => !touchesOtherKingdom(territoryId, new Set(), new Set([...available].filter((id) => !remaining.has(id)))));
+            if (possibleSeeds.length === 0) {
+              failed = true;
+              break;
+            }
+            const seedId = possibleSeeds[Math.floor(Math.random() * possibleSeeds.length)];
+            const ownedIds = new Set([seedId]);
+            remaining.delete(seedId);
+            const frontier = [...(graph.get(seedId) || [])];
+            while (ownedIds.size < count) {
+              const possibleGrowth = frontier.filter((territoryId, index) => {
+                if (!remaining.has(territoryId)) return false;
+                const assignedIds = new Set([...available].filter((id) => !remaining.has(id)));
+                return !touchesOtherKingdom(territoryId, ownedIds, assignedIds) && frontier.indexOf(territoryId) === index;
+              });
+              if (possibleGrowth.length === 0) {
+                failed = true;
+                break;
+              }
+              const nextId = possibleGrowth[Math.floor(Math.random() * possibleGrowth.length)];
+              remaining.delete(nextId);
+              ownedIds.add(nextId);
+              for (const neighborId of graph.get(nextId) || []) {
+                if (remaining.has(neighborId)) frontier.push(neighborId);
+              }
+            }
+            if (failed) break;
+            candidateSeeds.set(owner, ownedIds);
+          }
+          if (!failed) seeds = candidateSeeds;
+        }
+
+        if (seeds.size < ownersBySize.length) {
+          seeds = new Map();
+          const remaining = new Set(available);
+          for (const owner of ownersBySize) {
+            const count = enemyCounts.get(owner) || 0;
+            if (count === 0) continue;
+            const seedId = [...remaining][Math.floor(Math.random() * remaining.size)];
+            if (!seedId) continue;
+            const ownedIds = new Set([seedId]);
+            remaining.delete(seedId);
+            const frontier = [...(graph.get(seedId) || [])];
+            while (ownedIds.size < count && frontier.length > 0) {
+              const nextId = frontier.splice(Math.floor(Math.random() * frontier.length), 1)[0];
+              if (!remaining.has(nextId)) continue;
+              remaining.delete(nextId);
+              ownedIds.add(nextId);
+              frontier.push(...(graph.get(nextId) || []));
+            }
+            seeds.set(owner, ownedIds);
+          }
+        }
+
+        for (const territory of territories) {
+          if (territory.owner === 'player') continue;
+          territory.owner = 'neutral';
+          territory.color = '#7b9b62';
+        }
+        for (const [owner, territoryIds] of seeds) {
+          for (const territoryId of territoryIds) {
+            const territory = territoryById.get(territoryId);
+            territory.owner = owner;
+            territory.color = getEnemyColor(owner);
+          }
+        }
+      }
+
+      function buildWorld(totalKingdoms) {
         const defs = [
           ['iron-crown', 'Iron Crown', 'player', 140, 260, '#4fc3f7'],
           ['river-glade', 'River Glade', 'player', 110, 500, '#4fc3f7'],
@@ -407,16 +682,41 @@
           ['viper-spring', 'Viper Spring', 'neutral', 560, 190, '#d7d7d7']
         ];
 
+        const latticeNames = [
+          'Pinewatch', 'Greenbank', 'Oakrest', 'Hillmere', 'Willowfield',
+          'Brightwater', 'Fox Hollow', 'Elmstead', 'Brookside', 'Highmead',
+          'Stonegrove', 'Windmere', 'Clover Hill', 'Rainford', 'Ashwood',
+          'Fernvale', 'Longridge', 'Mossbank', 'Sunfield', 'Westgrove'
+        ];
+        const meadowNames = [
+          'Wildgrass', 'Heather Run', 'Golden Plain', 'Thistlewood', 'Spring Vale',
+          'Green Hollow', 'Briar Field', 'Cedar Run', 'Foxmead', 'Quiet Vale',
+          'Larkspur', 'Oakfield', 'Dewfall', 'Mossy Rise', 'Copper Meadow',
+          'Hawthorn', 'Riverside', 'Tallgrass', 'Birch Vale', 'Sunlit Downs',
+          'Cloverbrook', 'Wheatmere', 'Pinefield', 'Brookvale', 'Fern Ridge',
+          'Willow Run', 'Dappled Glen', 'Gorse Hill', 'Rainy Meadow', 'Greenwatch'
+        ];
+
         for (let row = 0; row < 4; row++) {
           for (let column = 0; column < 5; column++) {
             const id = `lattice-${row}-${column}`;
-            defs.push([id, `Lattice ${row * 5 + column + 1}`, 'neutral', 60 + column * 180, 45 + row * 135, '#d7d7d7', 22]);
+            defs.push([id, latticeNames[row * 5 + column], 'neutral', 60 + column * 180, 45 + row * 135, '#d7d7d7', 22]);
+          }
+        }
+
+        for (let row = 0; row < 5; row++) {
+          for (let column = 0; column < 6; column++) {
+            const id = `meadow-${row}-${column}`;
+            defs.push([id, meadowNames[row * 6 + column], 'neutral', 25 + column * 162, 20 + row * 145, '#7b9b62', 24]);
           }
         }
 
         const territories = defs.map(([id, name, owner, x, y, color, radius]) => makeTerritory(id, name, owner, x, y, color, radius || 32));
         buildContiguousTerritoryCells(territories);
-        const enemyOwners = ['enemy-north', 'enemy-east', 'enemy-south', 'enemy-west'];
+        const baseEnemyOwners = ['enemy-north', 'enemy-east', 'enemy-south', 'enemy-west'];
+        const enemyOwners = Array.from({ length: totalKingdoms - 1 }, (_, index) => {
+          return baseEnemyOwners[index] || `enemy-${index + 1}`;
+        });
         const enemyStartCount = territories.filter((territory) => isEnemyOwner(territory.owner)).length;
         const possibleEnemyStarts = territories.filter((territory) => territory.owner !== 'player');
         for (let i = possibleEnemyStarts.length - 1; i > 0; i--) {
@@ -433,6 +733,10 @@
           territory.owner = enemyOwners[index % enemyOwners.length];
           territory.color = getEnemyColor(territory.owner);
         });
+        const enemyCounts = new Map(enemyOwners.map((owner) => [
+          owner,
+          territories.filter((territory) => territory.owner === owner).length
+        ]));
         const castleIds = new Set(['sun-gate', 'frost-basin', 'gale-vault', 'red-ridge', 'grave-dune', 'crimson-pass']);
         for (const territory of territories) {
           territory.castle = castleIds.has(territory.id);
@@ -488,15 +792,30 @@
             if (row < 3) roads.push([id, `lattice-${row + 1}-${column}`]);
           }
         }
+        for (let row = 0; row < 5; row++) {
+          for (let column = 0; column < 6; column++) {
+            const id = `meadow-${row}-${column}`;
+            if (column < 5) roads.push([id, `meadow-${row}-${column + 1}`]);
+            if (row < 4) roads.push([id, `meadow-${row + 1}-${column}`]);
+          }
+        }
+        roads.push(['meadow-2-0', 'iron-crown']);
         roads.push(['lattice-0-0', 'sable-pit'], ['lattice-1-0', 'westmere'], ['lattice-3-2', 'south-harbor']);
-        const uniqueRoads = [...new Map(roads.map(([a, b]) => [[a, b].sort().join('|'), [a, b]])).values()];
-        const spacedRoads = selectRoadNetwork(uniqueRoads, territories, 24);
-        const limitedRoads = limitRoadConnections(spacedRoads, territories, 4);
+        const touchingRoads = buildTouchingTerritoryRoads(territories);
+        const playableRoads = keepRandomConnectedRoads(touchingRoads, territories.length);
+        assignConnectedEnemyTerritories(territories, playableRoads, enemyOwners, enemyCounts);
 
-        return { territories, roads: limitedRoads };
+        return { territories, roads: playableRoads };
       }
 
-      const world = buildWorld();
+      const setupScreen = document.getElementById('setupScreen');
+      const kingdomCountInput = document.getElementById('kingdomCount');
+      const startGame = document.getElementById('startGame');
+      const configuredKingdoms = Number(new URLSearchParams(window.location.search).get('kingdoms'));
+      const totalKingdoms = Number.isInteger(configuredKingdoms) && configuredKingdoms >= 2 && configuredKingdoms <= 8
+        ? configuredKingdoms
+        : 5;
+      const world = buildWorld(totalKingdoms);
       const territoryLookup = new Map(world.territories.map((territory) => [territory.id, territory]));
 
       const playerKingdom = {
@@ -531,6 +850,8 @@
       let lastFrame = 0;
       let gameOver = false;
       let victory = false;
+      let watchMode = false;
+      let gameSpeed = 1;
 
       function clamp(value, min, max) {
         return Math.min(Math.max(value, min), max);
@@ -793,6 +1114,21 @@
         let best = null;
         let bestDist = Infinity;
         const factionTerritoryCount = unit.team === 'enemy' ? getEnemyTerritoryCount(unit.faction) : Infinity;
+        const neutralTargets = unit.team === 'enemy' && factionTerritoryCount < 5
+          ? world.territories.filter((territory) => territory.owner === 'neutral')
+          : [];
+        if (neutralTargets.length > 0) {
+          for (const territory of neutralTargets) {
+            const originId = unit.currentTerritoryId || findTerritoryAt(unit.x, unit.y)?.id;
+            const path = originId ? findPath(originId, territory.id) : [];
+            const pathScore = path.length > 1 ? path.length : Infinity;
+            if (pathScore < bestDist) {
+              bestDist = pathScore;
+              best = territory;
+            }
+          }
+          if (best) return best;
+        }
         for (const territory of world.territories) {
           if (unit.team === 'player' && territory.owner === 'player') continue;
           if (unit.team === 'enemy' && territory.owner === unit.faction) continue;
@@ -830,6 +1166,44 @@
         if (target) aiOrders.set(unit.faction, target.id);
         return target;
       }
+
+      function orderWatchArmy() {
+        const livingUnits = allUnits.filter((unit) => unit.team === 'player' && unit.hp > 0);
+        const target = livingUnits.length > 0 ? getNearestEnemyTerritory(livingUnits[0]) : null;
+        if (!target) return;
+        playerOrder = target.id;
+        for (const unit of livingUnits) {
+          const origin = findTerritoryAt(unit.x, unit.y)
+            || territoryLookup.get(unit.currentTerritoryId)
+            || territoryLookup.get(playerKingdom.homeId);
+          unit.target = target.id;
+          unit.path = origin ? findPath(origin.id, target.id) : [target.id];
+        }
+      }
+
+      function updateWatchMode() {
+        if (!watchMode) return;
+        const target = playerOrder ? territoryLookup.get(playerOrder) : null;
+        if (!target || target.owner === 'player') orderWatchArmy();
+      }
+
+      function setWatchMode(enabled) {
+        watchMode = enabled;
+        watchModeButton.textContent = watchMode ? 'Take Control' : 'Watch Mode';
+        watchModeButton.setAttribute('aria-pressed', String(watchMode));
+        document.querySelectorAll('.sidebar button, .right-sidebar button').forEach((button) => {
+          button.disabled = watchMode;
+        });
+        if (watchMode) orderWatchArmy();
+        updateHud();
+      }
+
+      watchModeButton.addEventListener('click', () => setWatchMode(!watchMode));
+      speedButton.addEventListener('click', () => {
+        gameSpeed = gameSpeed === 1 ? 2 : 1;
+        speedButton.textContent = `${gameSpeed}x Speed`;
+        speedButton.setAttribute('aria-pressed', String(gameSpeed === 2));
+      });
 
       function updateHud() {
         goldValue.textContent = Math.floor(playerKingdom.gold);
@@ -1214,7 +1588,6 @@
         for (const candidate of allUnits) {
           const sameSide = candidate.team === unit.team && (unit.team !== 'enemy' || candidate.faction === unit.faction);
           if (sameSide) continue;
-          if (unit.team === 'enemy' && getEnemyTerritoryCount(unit.faction) < 5) continue;
           const dist = getDistance(unit, candidate);
           if (dist < bestDist) {
             bestDist = dist;
@@ -1287,7 +1660,7 @@
           const nearestEnemy = getNearestEnemyUnit(unit);
           const currentTerritory = findTerritoryAt(unit.x, unit.y);
 
-          if (nearestEnemy && getDistance(unit, nearestEnemy) <= unit.range + 2) {
+          if (nearestEnemy && getDistance(unit, nearestEnemy) <= unit.range) {
             const dx = nearestEnemy.x - unit.x;
             const dy = nearestEnemy.y - unit.y;
             const dist = Math.hypot(dx, dy) || 1;
@@ -1342,7 +1715,7 @@
       }
 
       function handleCanvasClick(event) {
-        if (gameOver) return;
+        if (gameOver || watchMode) return;
         if (suppressNextCanvasClick) {
           suppressNextCanvasClick = false;
           return;
@@ -1411,7 +1784,7 @@
       }
 
       canvas.addEventListener('pointerdown', (event) => {
-        if (gameOver || wallMode) return;
+        if (gameOver || wallMode || watchMode) return;
         const point = getCanvasPoint(event);
         selectionBox = { startX: point.x, startY: point.y, endX: point.x, endY: point.y, moved: false };
         canvas.setPointerCapture(event.pointerId);
@@ -1439,7 +1812,7 @@
 
       canvas.addEventListener('contextmenu', (event) => {
         event.preventDefault();
-        if (gameOver) return;
+        if (gameOver || watchMode) return;
         const { x, y } = getCanvasPoint(event);
         const territory = findTerritoryAt(x, y);
         if (!territory || territory.owner !== 'player') {
@@ -1737,15 +2110,29 @@
         if (gameOver) playAgain.style.display = 'block';
       }
 
-      playAgain.addEventListener('click', () => window.location.reload());
+      if (Number.isInteger(configuredKingdoms) && configuredKingdoms >= 2 && configuredKingdoms <= 8) {
+        kingdomCountInput.value = String(totalKingdoms);
+        setupScreen.hidden = true;
+      }
+
+      startGame.addEventListener('click', () => {
+        const selectedKingdoms = Number(kingdomCountInput.value);
+        window.location.href = `${window.location.pathname}?kingdoms=${selectedKingdoms}`;
+      });
+
+      playAgain.addEventListener('click', () => {
+        window.location.href = window.location.pathname;
+      });
 
       function update(dt) {
         if (gameOver) return;
-        addResourceIncome(dt);
-        updateNewNations(dt);
-        spawnEnemyUnits(dt);
-        updateEnemyWalls(dt);
-        updateUnits(dt);
+        const simulationDt = dt * gameSpeed;
+        addResourceIncome(simulationDt);
+        updateNewNations(simulationDt);
+        spawnEnemyUnits(simulationDt);
+        updateEnemyWalls(simulationDt);
+        updateWatchMode();
+        updateUnits(simulationDt);
         checkWinState();
         updateHud();
       }
